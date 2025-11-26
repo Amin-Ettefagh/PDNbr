@@ -1,3 +1,7 @@
+"collation": "SQL_Latin1_General_CP1256_CI_AS"
+
+
+
 import json
 from sqlalchemy import create_engine, MetaData, Table, Column, text
 from sqlalchemy.types import (
@@ -73,6 +77,27 @@ class DatabaseBuilder:
             return String(int(n))
         return String(None)
 
+    def apply_collation_full(self, schema, table_name, collation, fields):
+        with self.engine.connect() as conn:
+            fq_table = f"{schema}.{table_name}" if schema else table_name
+
+            try:
+                conn.execute(text(f"ALTER TABLE {fq_table} COLLATE {collation}"))
+            except SQLAlchemyError:
+                pass
+
+            for f in fields:
+                col_name = f["db"]
+                col_type = f["type"].upper()
+                if col_type.startswith("NVARCHAR"):
+                    try:
+                        conn.execute(text(
+                            f"ALTER TABLE {fq_table} "
+                            f"ALTER COLUMN {col_name} {col_type} COLLATE {collation}"
+                        ))
+                    except SQLAlchemyError:
+                        pass
+
     def create_tables(self):
         if self.engine is None:
             display(Markdown("### ❌ Engine is not initialized. Call build_engine() first."))
@@ -99,11 +124,7 @@ class DatabaseBuilder:
 
                 sqlalchemy_type = self.map_type(col_type)
 
-                if isinstance(sqlalchemy_type, String) and collation:
-                    col_obj = Column(col_name, sqlalchemy_type, collation=collation)
-                else:
-                    col_obj = Column(col_name, sqlalchemy_type)
-
+                col_obj = Column(col_name, sqlalchemy_type)
                 cols.append(col_obj)
 
             table_obj = Table(table_name, metadata, *cols)
@@ -114,6 +135,10 @@ class DatabaseBuilder:
             except SQLAlchemyError as e:
                 display(Markdown(f"### ❌ Error creating table `{table_name}`:\n```\n{str(e)}\n```"))
                 continue
+
+            if collation:
+                self.apply_collation_full(schema, table_name, collation, table_def["fields"])
+                display(Markdown(f"### 🔤 Collation `{collation}` applied to table and fields."))
 
             result_info = []
             for c in cols:
