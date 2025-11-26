@@ -1,3 +1,14 @@
+import json
+from sqlalchemy import create_engine, MetaData, Table, Column, text
+from sqlalchemy.types import (
+    Integer, SmallInteger, BigInteger, String,
+    Date, DateTime, Numeric
+)
+from sqlalchemy.exc import SQLAlchemyError
+from IPython.display import display, Markdown
+from Config import CONFIG
+
+
 class DatabaseBuilder:
     def __init__(self):
         self.cfg = CONFIG
@@ -41,7 +52,6 @@ class DatabaseBuilder:
 
     def map_type(self, t):
         t = t.upper()
-
         if t == "DATE":
             return Date()
         if t.startswith("DATETIME"):
@@ -61,7 +71,6 @@ class DatabaseBuilder:
         if t.startswith("NVARCHAR("):
             n = t[t.find("(") + 1 : t.find(")")]
             return String(int(n))
-
         return String(None)
 
     def create_tables(self):
@@ -75,7 +84,7 @@ class DatabaseBuilder:
             display(Markdown(f"---\n## ▶️ Creating table: **{table_name}**"))
 
             schema = table_def.get("schema", "")
-            table_collation = table_def.get("collation", None)
+            collation = table_def.get("collation", None)
 
             metadata = MetaData(schema=schema if schema else None)
 
@@ -88,12 +97,12 @@ class DatabaseBuilder:
                     display(Markdown(f"⚠️ Skipped field with empty db name in `{table_name}`"))
                     continue
 
-                col_sql = self.map_type(col_type)
+                sqlalchemy_type = self.map_type(col_type)
 
-                if isinstance(col_sql, String) and table_collation:
-                    col_obj = Column(col_name, col_sql, collation=table_collation)
+                if isinstance(sqlalchemy_type, String) and collation:
+                    col_obj = Column(col_name, sqlalchemy_type, collation=collation)
                 else:
-                    col_obj = Column(col_name, col_sql)
+                    col_obj = Column(col_name, sqlalchemy_type)
 
                 cols.append(col_obj)
 
@@ -110,8 +119,7 @@ class DatabaseBuilder:
             for c in cols:
                 result_info.append({
                     "column": c.name,
-                    "type": str(c.type),
-                    "collation": table_collation if isinstance(c.type, String) else None
+                    "type": str(c.type)
                 })
 
             created_tables[table_name] = result_info
