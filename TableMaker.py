@@ -1,14 +1,3 @@
-import json
-from sqlalchemy import create_engine, MetaData, Table, Column, text
-from sqlalchemy.types import (
-    Integer, SmallInteger, BigInteger, String,
-    Date, DateTime, Numeric
-)
-from sqlalchemy.exc import SQLAlchemyError
-from IPython.display import display, Markdown
-from Config import CONFIG
-
-
 class DatabaseBuilder:
     def __init__(self):
         self.cfg = CONFIG
@@ -86,6 +75,8 @@ class DatabaseBuilder:
             display(Markdown(f"---\n## ▶️ Creating table: **{table_name}**"))
 
             schema = table_def.get("schema", "")
+            table_collation = table_def.get("collation", None)
+
             metadata = MetaData(schema=schema if schema else None)
 
             cols = []
@@ -97,11 +88,14 @@ class DatabaseBuilder:
                     display(Markdown(f"⚠️ Skipped field with empty db name in `{table_name}`"))
                     continue
 
-                try:
-                    col_obj = Column(col_name, self.map_type(col_type))
-                    cols.append(col_obj)
-                except Exception as e:
-                    display(Markdown(f"### ❌ Error mapping type for `{col_name}`:\n```\n{str(e)}\n```"))
+                col_sql = self.map_type(col_type)
+
+                if isinstance(col_sql, String) and table_collation:
+                    col_obj = Column(col_name, col_sql, collation=table_collation)
+                else:
+                    col_obj = Column(col_name, col_sql)
+
+                cols.append(col_obj)
 
             table_obj = Table(table_name, metadata, *cols)
 
@@ -116,7 +110,8 @@ class DatabaseBuilder:
             for c in cols:
                 result_info.append({
                     "column": c.name,
-                    "type": str(c.type)
+                    "type": str(c.type),
+                    "collation": table_collation if isinstance(c.type, String) else None
                 })
 
             created_tables[table_name] = result_info
@@ -125,13 +120,3 @@ class DatabaseBuilder:
 
         display(Markdown("# 🎉 All table creation tasks completed."))
         return created_tables
-
-
-
-
-
-db = DatabaseBuilder()
-db.build_engine()        # test + create engine
-
-result = db.create_tables()   # create all tables
-result
