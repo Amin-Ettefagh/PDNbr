@@ -7,48 +7,68 @@ CONFIG = {
     # Server Settings
     # ---------------------------------------
 
-    # Database server IP address
     "server_ip": "1.1.1.1",
 
     # Database type
-    # Options (expandable):
-    #   - "SqlServer"
-    #   - "MySQL"
-    #   - "Oracle"
-    #   - "Postgres"
-    #   - ...
     "database_type": "SqlServer",
 
     # ---------------------------------------
     # Authentication Settings
     # ---------------------------------------
 
-    # Username for database connection
     "username": "a.etefagh",
-
-    # Password for database connection
     "password": "123456789",
-
-    # Authentication method
-    # Options:
-    #   - "WinAuth"  -> Windows Authentication
-    #   - "UserPass" -> Username/Password Authentication
-    "auth_method": "WinAuth",
+    "auth_method": "WinAuth",  # WinAuth or UserPass
 
     # ---------------------------------------
-    # Operating System Settings
+    # OS Settings
     # ---------------------------------------
 
-    # Operating system type
-    # Options:
-    #   - "Windows"
-    #   - "Linux"
     "os_type": "Windows",
 
     # ---------------------------------------
     # Database Settings
     # ---------------------------------------
 
-    # Database name
     "database_name": "AminTest",
+    "pyodbc_driver": "ODBC Driver 17 for SQL Server",
+
+    # ---------------------------------------
+    # Database Tables, Schemas & Fields
+    # Support for multiple tables
+    # ---------------------------------------
+
+    "tables": {
+        "Users": {
+            "schema": "dbo",
+            "fields": {
+                "id": "UserID",
+                "username": "UserName",
+                "password": "PasswordHash",
+                "email": "Email",
+                "created_at": "CreatedAt"
+            }
+        },
+
+        "Products": {
+            "schema": "inventory",
+            "fields": {
+                "id": "ProductID",
+                "name": "ProductName",
+                "price": "Price",
+                "stock": "StockQty",
+                "created_at": "CreatedAt"
+            }
+        },
+
+        "Logs": {
+            "schema": "system",
+            "fields": {
+                "id": "LogID",
+                "level": "Level",
+                "message": "Message",
+                "created_at": "CreatedAt"
+            }
+        }
+    }
 }
