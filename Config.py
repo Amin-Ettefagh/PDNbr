@@ -50,29 +50,9 @@ CONFIG = {
             # Each field is a dict: { excel, db, type }
             "fields": [
                 {
-                    "excel": "UserID_Excel",
+                    "file": "UserID_Excel",
                     "db": "UserID",
                     "type": "INT"
-                },
-                {
-                    "excel": "UserName_Excel",
-                    "db": "UserName",
-                    "type": "NVARCHAR(100)"
-                },
-                {
-                    "excel": "Password_Excel",
-                    "db": "PasswordHash",
-                    "type": "NVARCHAR(200)"
-                },
-                {
-                    "excel": "Email_Excel",
-                    "db": "Email",
-                    "type": "NVARCHAR(150)"
-                },
-                {
-                    "excel": "CreatedAt_Excel",
-                    "db": "CreatedAt",
-                    "type": "DATETIME"
                 }
             ]
         },
@@ -87,29 +67,9 @@ CONFIG = {
 
             "fields": [
                 {
-                    "excel": "ProductID_Excel",
-                    "db": "ProductID",
+                    "file": "UserID_Excel",
+                    "db": "UserID",
                     "type": "INT"
-                },
-                {
-                    "excel": "ProductName_Excel",
-                    "db": "ProductName",
-                    "type": "NVARCHAR(150)"
-                },
-                {
-                    "excel": "Price_Excel",
-                    "db": "Price",
-                    "type": "DECIMAL(18,2)"
-                },
-                {
-                    "excel": "Stock_Excel",
-                    "db": "StockQty",
-                    "type": "INT"
-                },
-                {
-                    "excel": "CreatedAt_Excel",
-                    "db": "CreatedAt",
-                    "type": "DATETIME"
                 }
             ]
         }
