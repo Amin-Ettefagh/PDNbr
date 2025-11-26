@@ -1,0 +1,26 @@
+| نام فارسی فیلد                     | نام انگلیسی پیشنهادی (DB Field Name) |
+| ---------------------------------- | ------------------------------------ |
+| تاریخ صدور شمسی                    | shamsiIssueDate                      |
+| شماره پته                          | pateNumber                           |
+| نام و نام خانوادگی راننده          | driverFullName                       |
+| شماره پلاک کامیون                  | truckPlateNumber                     |
+| وزن                                | weight                               |
+| نام و نام خانوادگی حمل‌کننده       | carrierFullName                      |
+| کد ملی حمل‌کننده                   | carrierNationalCode                  |
+| نام گمرک مقصد                      | destinationCustomsName               |
+| کد گمرک مقصد                       | destinationCustomsCode               |
+| نام گمرک مبدا                      | originCustomsName                    |
+| کد گمرک مبدا                       | originCustomsCode                    |
+| شماره پته اول                      | firstPateNumber                      |
+| سریال کامل                         | fullSerialNumber                     |
+| کد ملی صاحب کالا                   | ownerNationalCode                    |
+| نام و نام خانوادگی صاحب کالا       | ownerFullName                        |
+| شماره کامیون                       | truckNumber                          |
+| تاریخ شمسی صدور کوتاژ              | shamsiCotageIssueDate                |
+| تاریخ شمسی صدور پته                | shamsiPateIssueDate                  |
+| نام و نام خانوادگی راننده (تکراری) | driverFullName                       |
+| نام صاحب کالا                      | ownerName                            |
+| شماره کانتینر                      | containerNumber                      |
+| شماره کامیون (تکراری)              | truckNumber                          |
+| شماره پروانه                       | licenseNumber                        |
+| اظهارنامه واردات                   | importDeclaration                    |
