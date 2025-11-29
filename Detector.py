@@ -18,8 +18,6 @@ class FileStructureExtractor:
         s = series.dropna()
         if s.empty:
             return "NVARCHAR(25)"
-        if len(s) > self.sample_rows:
-            s = s.sample(self.sample_rows, random_state=0)
         s_str = s.astype(str)
 
         num = pd.to_numeric(s_str, errors="coerce")
@@ -45,17 +43,13 @@ class FileStructureExtractor:
 
         dt_parsed = pd.to_datetime(s_str, errors="coerce", infer_datetime_format=True)
         dt_non_null = dt_parsed.dropna()
-        if not dt_non_null.empty and len(dt_non_null) / len(s_str) >= 0.8:
-            times = dt_non_null.dt.time
-            if all(t == dt.time(0, 0) for t in times):
+        if not dt_non_null.empty and len(dt_non_non_null := dt_non_null) / len(s_str) >= 0.8:
+            if all(t == dt.time(0, 0) for t in dt_non_null.dt.time):
                 return "DATE"
             return "DATETIME2(0)"
 
         lengths = s_str.str.len()
         max_len = int(lengths.max())
-        if max_len <= 0:
-            max_len = 1
-
         if max_len <= 25:
             return "NVARCHAR(25)"
         if max_len <= 50:
@@ -68,23 +62,22 @@ class FileStructureExtractor:
             return "NVARCHAR(200)"
         if max_len <= 300:
             return "NVARCHAR(300)"
-
         return "NVARCHAR(MAX)"
 
     def process_txt(self, path):
         with open(path, "r", encoding="utf-8", errors="ignore") as f:
             sample = f.read(2048)
         delimiter = "," if sample.count(",") >= sample.count("\t") else "\t"
-        return pd.read_csv(path, delimiter=delimiter, nrows=self.sample_rows)
+        return pd.read_csv(path, delimiter=delimiter)
 
     def process_csv(self, path):
-        return pd.read_csv(path, nrows=self.sample_rows)
+        return pd.read_csv(path)
 
     def process_excel(self, path):
         xls = pd.ExcelFile(path)
         data = {}
         for sheet in xls.sheet_names:
-            data[sheet] = pd.read_excel(path, sheet_name=sheet, nrows=self.sample_rows)
+            data[sheet] = pd.read_excel(path, sheet_name=sheet)
         return data
 
     def generate_table_name(self, path, sheet=None):
