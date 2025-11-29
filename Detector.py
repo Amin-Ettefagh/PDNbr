@@ -1,16 +1,16 @@
 import os
 import json
+import warnings
+import datetime as dt
 import pandas as pd
 from tqdm import tqdm
-import datetime as dt
-import warnings
+
 
 class FileStructureExtractor:
-    def __init__(self, paths, sample_rows=5000, copy_file_to_db=False, default_collation="SQL_Latin1_General_CP1256_CI_AS"):
+    def __init__(self, paths, sample_rows=5000, copy_file_to_db_name=False):
         self.paths = paths if isinstance(paths, list) else [paths]
         self.sample_rows = sample_rows
-        self.copy_file_to_db = copy_file_to_db
-        self.default_collation = default_collation
+        self.copy_file_to_db_name = copy_file_to_db_name
         self.tables = {}
         warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -21,6 +21,7 @@ class FileStructureExtractor:
         if len(s) > self.sample_rows:
             s = s.sample(self.sample_rows, random_state=0)
         s_str = s.astype(str)
+
         num = pd.to_numeric(s_str, errors="coerce")
         num_non_null = num.dropna()
         if not num_non_null.empty and len(num_non_null) / len(s_str) >= 0.8:
@@ -41,6 +42,7 @@ class FileStructureExtractor:
                         return "DECIMAL(38,0)"
                 return "DECIMAL(38,0)"
             return "DECIMAL(18,4)"
+
         dt_parsed = pd.to_datetime(s_str, errors="coerce", infer_datetime_format=True)
         dt_non_null = dt_parsed.dropna()
         if not dt_non_null.empty and len(dt_non_null) / len(s_str) >= 0.8:
@@ -48,10 +50,12 @@ class FileStructureExtractor:
             if all(t == dt.time(0, 0) for t in times):
                 return "DATE"
             return "DATETIME2(0)"
+
         lengths = s_str.str.len()
         max_len = int(lengths.max())
         if max_len <= 0:
             max_len = 1
+
         if max_len <= 25:
             return "NVARCHAR(25)"
         if max_len <= 50:
@@ -64,6 +68,7 @@ class FileStructureExtractor:
             return "NVARCHAR(200)"
         if max_len <= 300:
             return "NVARCHAR(300)"
+
         return "NVARCHAR(MAX)"
 
     def process_txt(self, path):
@@ -84,7 +89,9 @@ class FileStructureExtractor:
 
     def generate_table_name(self, path, sheet=None):
         base = os.path.splitext(os.path.basename(path))[0]
-        return f"{base}_{sheet}" if sheet else base
+        if sheet:
+            return f"{base}_{sheet}"
+        return base
 
     def normalize_columns(self, df):
         new_cols = []
@@ -96,18 +103,24 @@ class FileStructureExtractor:
         df.columns = new_cols
         return df
 
-    def build_fields(self, df, desc):
+    def build_fields_with_progress(self, df, desc):
         fields = []
         cols = list(df.columns)
         with tqdm(total=len(cols), desc=desc, ncols=100, leave=False) as pbar:
             for col in cols:
-                sql_type = self.detect_type(df[col])
-                db_name = col if self.copy_file_to_db else ""
-                fields.append({"file": col, "db": db_name, "type": sql_type})
+                t = self.detect_type(df[col])
+                db_name = col if self.copy_file_to_db_name else ""
+                fields.append(
+                    {
+                        "file": col,
+                        "db": db_name,
+                        "type": t
+                    }
+                )
                 pbar.update(1)
         return fields
 
-    def run(self, output="C.txt"):
+    def run(self, output_path="C.txt"):
         for path in self.paths:
             ext = os.path.splitext(path)[1].lower()
 
@@ -116,54 +129,60 @@ class FileStructureExtractor:
                 for sheet_name, df in sheets.items():
                     df = self.normalize_columns(df)
                     table_name = self.generate_table_name(path, sheet_name)
-                    fields = self.build_fields(df, f"{os.path.basename(path)} | {sheet_name}")
+                    fields = self.build_fields_with_progress(df, f"{os.path.basename(path)} | {sheet_name}")
                     self.tables[table_name] = {
                         "schema": "",
-                        "collation": self.default_collation,
+                        "collation": "SQL_Latin1_General_CP1256_CI_AS",
                         "input": {"file": path, "sheet": sheet_name},
-                        "fields": fields,
+                        "fields": fields
                     }
 
             elif ext == ".csv":
                 df = self.process_csv(path)
                 df = self.normalize_columns(df)
                 table_name = self.generate_table_name(path)
-                fields = self.build_fields(df, os.path.basename(path))
+                fields = self.build_fields_with_progress(df, os.path.basename(path))
                 self.tables[table_name] = {
                     "schema": "",
-                    "collation": self.default_collation,
+                    "collation": "SQL_Latin1_General_CP1256_CI_AS",
                     "input": {"file": path, "sheet": None},
-                    "fields": fields,
+                    "fields": fields
                 }
 
             elif ext == ".txt":
                 df = self.process_txt(path)
                 df = self.normalize_columns(df)
                 table_name = self.generate_table_name(path)
-                fields = self.build_fields(df, os.path.basename(path))
+                fields = self.build_fields_with_progress(df, os.path.basename(path))
                 self.tables[table_name] = {
                     "schema": "",
-                    "collation": self.default_collation,
+                    "collation": "SQL_Latin1_General_CP1256_CI_AS",
                     "input": {"file": path, "sheet": None},
-                    "fields": fields,
+                    "fields": fields
                 }
 
-        if os.path.exists(output):
-            os.remove(output)
-        with open(output, "w", encoding="utf-8") as f:
+        if os.path.exists(output_path):
+            os.remove(output_path)
+        with open(output_path, "w", encoding="utf-8") as f:
             json.dump({"tables": self.tables}, f, ensure_ascii=False, indent=4)
 
-        return self.tables
+        return {"tables": self.tables}
 
 
+
+
+# paths = [
+#     r"D:\Data\Users.xlsx",
+#     r"D:\Data\Products.csv",
+#     r"D:\Data\Logs.txt"
+# ]
 
 # extractor = FileStructureExtractor(
-#     paths=[
-#         r"D:\Data\Users.xlsx",
-#         r"D:\Data\Products.csv"
-#     ],
-#     copy_file_to_db=True
+#     paths=paths,
+#     sample_rows=5000,
+#     copy_file_to_db_name=True
 # )
 
 # result = extractor.run("C.txt")
-# result
+
+# print("DONE")
