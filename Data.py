@@ -174,8 +174,3 @@ class ConfigDataLoader:
                     pb.update(1)
             display(Markdown(f"### ✅ {n} rows inserted"))
         display(Markdown("# 🎉 Completed"))
-
-
-
-# loader = ConfigDataLoader(batch_size=1_000_000)
-# loader.load_all()
