@@ -331,9 +331,9 @@ input:focus, textarea:focus, select:focus {
 }
 
 .side-panel.collapsed {
-  width: 56px;
-  min-width: 56px;
-  max-width: 56px;
+  width: 44px;
+  min-width: 44px;
+  max-width: 44px;
 }
 .side-panel.collapsed .side-panel-scroll,
 .side-panel.collapsed .side-panel-title {
@@ -341,6 +341,10 @@ input:focus, textarea:focus, select:focus {
 }
 .side-panel.collapsed .panel-toggle-btn {
   transform: rotate(180deg);
+}
+.side-panel.collapsed .side-panel-header {
+  padding: 8px;
+  justify-content: center;
 }
 
 .side-panel-header {
@@ -408,36 +412,37 @@ input:focus, textarea:focus, select:focus {
 .accordion-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
-.accordion-actions button {
+.accordion-actions button,
+.accordion-handle {
   width: 26px;
   height: 26px;
   border-radius: 8px;
   background: #0f172a;
   border: 1px solid #1f2937;
   color: #cbd5e1;
-  font-size: 11px;
+  font-size: 12px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   box-shadow: 0 6px 18px rgba(0,0,0,0.35), inset 0 0 0 1px rgba(255,255,255,0.03);
 }
-.accordion-actions button:hover {
+.accordion-actions button:hover,
+.accordion-handle:hover {
   background: #152340;
-}
-.accordion-actions button:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
 }
 .accordion-pin.active {
   border-color: #38bdf8;
   color: #38bdf8;
   box-shadow: 0 0 0 1px rgba(56,189,248,0.35), 0 8px 22px rgba(0,0,0,0.4);
 }
-.accordion-move {
-  display: flex;
-  gap: 4px;
+.accordion-handle {
+  cursor: grab;
+}
+.accordion.dragging {
+  opacity: 0.6;
+  transform: scale(0.995);
 }
 
 .accordion-body {
@@ -615,7 +620,7 @@ input:focus, textarea:focus, select:focus {
     <aside id="sidePanel" class="side-panel text-xs">
       <div class="side-panel-header">
         <div class="side-panel-title">Panel</div>
-        <button id="collapsePanelBtn" class="panel-toggle-btn" title="Toggle panel">‹</button>
+        <button id="collapsePanelBtn" class="panel-toggle-btn" title="Toggle panel">⟨</button>
       </div>
             <div class="side-panel-scroll scrollbar-thin" id="sidePanelScroll">
         <div class="accordion" data-section="json" data-order="0" data-pinned="false">
@@ -626,10 +631,7 @@ input:focus, textarea:focus, select:focus {
             </button>
             <div class="accordion-actions">
               <button class="accordion-pin" title="Pin section">📌</button>
-              <div class="accordion-move">
-                <button class="accordion-move-up" title="Move up">▲</button>
-                <button class="accordion-move-down" title="Move down">▼</button>
-              </div>
+              <button class="accordion-handle" title="Drag (right-click hold) to reorder">⋮⋮</button>
             </div>
           </div>
           <div id="jsonAccordion" class="accordion-body space-y-2">
@@ -650,10 +652,7 @@ input:focus, textarea:focus, select:focus {
             </button>
             <div class="accordion-actions">
               <button class="accordion-pin" title="Pin section">📌</button>
-              <div class="accordion-move">
-                <button class="accordion-move-up" title="Move up">▲</button>
-                <button class="accordion-move-down" title="Move down">▼</button>
-              </div>
+              <button class="accordion-handle" title="Drag (right-click hold) to reorder">⋮⋮</button>
             </div>
           </div>
           <div id="sqlAccordion" class="accordion-body space-y-2">
@@ -674,10 +673,7 @@ input:focus, textarea:focus, select:focus {
             </button>
             <div class="accordion-actions">
               <button class="accordion-pin" title="Pin section">📌</button>
-              <div class="accordion-move">
-                <button class="accordion-move-up" title="Move up">▲</button>
-                <button class="accordion-move-down" title="Move down">▼</button>
-              </div>
+              <button class="accordion-handle" title="Drag (right-click hold) to reorder">⋮⋮</button>
             </div>
           </div>
           <div id="tableAccordion" class="accordion-body space-y-3">
@@ -730,10 +726,7 @@ input:focus, textarea:focus, select:focus {
             </button>
             <div class="accordion-actions">
               <button class="accordion-pin" title="Pin section">📌</button>
-              <div class="accordion-move">
-                <button class="accordion-move-up" title="Move up">▲</button>
-                <button class="accordion-move-down" title="Move down">▼</button>
-              </div>
+              <button class="accordion-handle" title="Drag (right-click hold) to reorder">⋮⋮</button>
             </div>
           </div>
           <div id="fieldAccordion" class="accordion-body space-y-2">
@@ -787,10 +780,7 @@ input:focus, textarea:focus, select:focus {
             </button>
             <div class="accordion-actions">
               <button class="accordion-pin" title="Pin section">📌</button>
-              <div class="accordion-move">
-                <button class="accordion-move-up" title="Move up">▲</button>
-                <button class="accordion-move-down" title="Move down">▼</button>
-              </div>
+              <button class="accordion-handle" title="Drag (right-click hold) to reorder">⋮⋮</button>
             </div>
           </div>
           <div id="relationsAccordion" class="accordion-body space-y-2">
@@ -872,10 +862,7 @@ input:focus, textarea:focus, select:focus {
             </button>
             <div class="accordion-actions">
               <button class="accordion-pin" title="Pin section">📌</button>
-              <div class="accordion-move">
-                <button class="accordion-move-up" title="Move up">▲</button>
-                <button class="accordion-move-down" title="Move down">▼</button>
-              </div>
+              <button class="accordion-handle" title="Drag (right-click hold) to reorder">⋮⋮</button>
             </div>
           </div>
           <div id="schemaAccordion" class="accordion-body space-y-2">
@@ -1038,8 +1025,7 @@ const PanelUI={
     toggle:el.querySelector(".accordion-toggle"),
     body:null,
     pinBtn:el.querySelector(".accordion-pin"),
-    upBtn:el.querySelector(".accordion-move-up"),
-    downBtn:el.querySelector(".accordion-move-down")
+    handle:el.querySelector(".accordion-handle")
   }))
 };
 function showView(name){
@@ -1151,6 +1137,9 @@ function sortedSections(){
     return Number(a.element.dataset.order||0)-Number(b.element.dataset.order||0)
   })
 }
+function floatingSections(){
+  return sortedSections().filter(sec=>sec.element.dataset.pinned!=="true")
+}
 function syncSectionLayout(){
   const ordered=sortedSections();
   ordered.forEach((sec,i)=>{
@@ -1161,48 +1150,77 @@ function syncSectionLayout(){
       sec.pinBtn.classList.toggle("active",pinned);
       sec.pinBtn.setAttribute("aria-pressed",pinned?"true":"false")
     }
-    if(sec.upBtn){
-      const blockedAbove=i===0||ordered[i-1].element.dataset.pinned==="true";
-      sec.upBtn.disabled=pinned||blockedAbove
-    }
-    if(sec.downBtn){
-      sec.downBtn.disabled=pinned||i===ordered.length-1
-    }
   })
-}
-function moveSection(sec,dir){
-  if(!sec||sec.element.dataset.pinned==="true")return;
-  const ordered=sortedSections();
-  const idx=ordered.indexOf(sec);
-  if(idx===-1)return;
-  const target=idx+dir;
-  if(target<0||target>=ordered.length)return;
-  if(ordered[target].element.dataset.pinned==="true")return;
-  const a=ordered[idx].element.dataset.order;
-  ordered[idx].element.dataset.order=ordered[target].element.dataset.order;
-  ordered[target].element.dataset.order=a;
-  syncSectionLayout()
 }
 function toggleSectionPin(sec){
   if(!sec)return;
   const pinned=sec.element.dataset.pinned==="true";
-  sec.element.dataset.pinned=pinned?"false":"true";
+  if(pinned){
+    sec.element.dataset.pinned="false"
+  }else{
+    PanelUI.sections.forEach(s=>{s.element.dataset.pinned="false"});
+    sec.element.dataset.pinned="true";
+    sec.element.dataset.order=0
+  }
   syncSectionLayout()
+}
+function reorderFloating(sec,targetIdx){
+  const ordered=sortedSections();
+  const pinnedList=ordered.filter(s=>s.element.dataset.pinned==="true");
+  const floats=ordered.filter(s=>s.element.dataset.pinned!=="true");
+  const cur=floats.indexOf(sec);
+  if(cur===-1)return;
+  const safeIdx=Math.max(0,Math.min(floats.length-1,targetIdx));
+  floats.splice(cur,1);
+  floats.splice(safeIdx,0,sec);
+  const merged=[...pinnedList,...floats];
+  merged.forEach((s,i)=>{s.element.dataset.order=i});
+  syncSectionLayout()
+}
+let sectionDragState=null;
+function startSectionDrag(sec,e){
+  if(sec.element.dataset.pinned==="true")return;
+  sectionDragState={sec};
+  sec.element.classList.add("dragging");
+  document.addEventListener("mousemove",onSectionDragMove);
+  document.addEventListener("mouseup",endSectionDrag)
+}
+function onSectionDragMove(e){
+  if(!sectionDragState)return;
+  const floats=floatingSections();
+  const curIdx=floats.indexOf(sectionDragState.sec);
+  if(curIdx===-1)return;
+  let targetIdx=floats.length-1;
+  for(let i=0;i<floats.length;i++){
+    const rect=floats[i].element.getBoundingClientRect();
+    const mid=rect.top+rect.height/2;
+    if(e.clientY<mid){targetIdx=i;break}
+  }
+  if(targetIdx!==curIdx)reorderFloating(sectionDragState.sec,targetIdx)
+}
+function endSectionDrag(){
+  if(!sectionDragState)return;
+  sectionDragState.sec.element.classList.remove("dragging");
+  document.removeEventListener("mousemove",onSectionDragMove);
+  document.removeEventListener("mouseup",endSectionDrag);
+  sectionDragState=null
 }
 PanelUI.sections.forEach(sec=>{
   if(sec.toggle&&sec.toggle.dataset.target){
     sec.body=document.getElementById(sec.toggle.dataset.target)
   }
   if(sec.pinBtn)sec.pinBtn.addEventListener("click",()=>toggleSectionPin(sec));
-  if(sec.upBtn)sec.upBtn.addEventListener("click",()=>moveSection(sec,-1));
-  if(sec.downBtn)sec.downBtn.addEventListener("click",()=>moveSection(sec,1));
+  if(sec.handle){
+    sec.handle.addEventListener("contextmenu",e=>e.preventDefault());
+    sec.handle.addEventListener("mousedown",e=>{if(e.button!==2)return;startSectionDrag(sec,e)})
+  }
 });
 syncSectionLayout();
 
 if(PanelUI.toggleBtn&&PanelUI.side){
   PanelUI.toggleBtn.addEventListener("click",()=>{
     const collapsed=PanelUI.side.classList.toggle("collapsed");
-    PanelUI.toggleBtn.textContent=collapsed?"›":"‹"
+    PanelUI.toggleBtn.textContent=collapsed?"⟩":"⟨"
   })
 }
 PanelUI.accordions.forEach(btn=>{
