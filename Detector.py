@@ -1,137 +1,169 @@
+import os
 import json
-from sqlalchemy import create_engine, MetaData, Table, Column, text
-from sqlalchemy.types import (
-    Integer, SmallInteger, BigInteger, String,
-    Date, DateTime, Numeric
-)
-from sqlalchemy.exc import SQLAlchemyError
-from IPython.display import display, Markdown
-from Config import CONFIG
+import pandas as pd
+from tqdm import tqdm
+import datetime as dt
+import warnings
+
+class FileStructureExtractor:
+    def __init__(self, paths, sample_rows=5000, copy_file_to_db=False, default_collation="SQL_Latin1_General_CP1256_CI_AS"):
+        self.paths = paths if isinstance(paths, list) else [paths]
+        self.sample_rows = sample_rows
+        self.copy_file_to_db = copy_file_to_db
+        self.default_collation = default_collation
+        self.tables = {}
+        warnings.filterwarnings("ignore", category=UserWarning)
+
+    def detect_type(self, series):
+        s = series.dropna()
+        if s.empty:
+            return "NVARCHAR(25)"
+        if len(s) > self.sample_rows:
+            s = s.sample(self.sample_rows, random_state=0)
+        s_str = s.astype(str)
+        num = pd.to_numeric(s_str, errors="coerce")
+        num_non_null = num.dropna()
+        if not num_non_null.empty and len(num_non_null) / len(s_str) >= 0.8:
+            if ((num_non_null % 1) == 0).all():
+                max_val = num_non_null.abs().max()
+                try:
+                    max_val_float = float(max_val)
+                except Exception:
+                    max_val_float = None
+                if max_val_float is not None:
+                    if max_val_float <= 32767:
+                        return "SMALLINT"
+                    elif max_val_float <= 2147483647:
+                        return "INT"
+                    elif max_val_float <= 9223372036854775807:
+                        return "BIGINT"
+                    else:
+                        return "DECIMAL(38,0)"
+                return "DECIMAL(38,0)"
+            return "DECIMAL(18,4)"
+        dt_parsed = pd.to_datetime(s_str, errors="coerce", infer_datetime_format=True)
+        dt_non_null = dt_parsed.dropna()
+        if not dt_non_null.empty and len(dt_non_null) / len(s_str) >= 0.8:
+            times = dt_non_null.dt.time
+            if all(t == dt.time(0, 0) for t in times):
+                return "DATE"
+            return "DATETIME2(0)"
+        lengths = s_str.str.len()
+        max_len = int(lengths.max())
+        if max_len <= 0:
+            max_len = 1
+        if max_len <= 25:
+            return "NVARCHAR(25)"
+        if max_len <= 50:
+            return "NVARCHAR(50)"
+        if max_len <= 75:
+            return "NVARCHAR(75)"
+        if max_len <= 100:
+            return "NVARCHAR(100)"
+        if max_len <= 200:
+            return "NVARCHAR(200)"
+        if max_len <= 300:
+            return "NVARCHAR(300)"
+        return "NVARCHAR(MAX)"
+
+    def process_txt(self, path):
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            sample = f.read(2048)
+        delimiter = "," if sample.count(",") >= sample.count("\t") else "\t"
+        return pd.read_csv(path, delimiter=delimiter, nrows=self.sample_rows)
+
+    def process_csv(self, path):
+        return pd.read_csv(path, nrows=self.sample_rows)
+
+    def process_excel(self, path):
+        xls = pd.ExcelFile(path)
+        data = {}
+        for sheet in xls.sheet_names:
+            data[sheet] = pd.read_excel(path, sheet_name=sheet, nrows=self.sample_rows)
+        return data
+
+    def generate_table_name(self, path, sheet=None):
+        base = os.path.splitext(os.path.basename(path))[0]
+        return f"{base}_{sheet}" if sheet else base
+
+    def normalize_columns(self, df):
+        new_cols = []
+        for i, c in enumerate(df.columns):
+            if isinstance(c, str) and c.strip() != "":
+                new_cols.append(c)
+            else:
+                new_cols.append(f"Col_{i+1}")
+        df.columns = new_cols
+        return df
+
+    def build_fields(self, df, desc):
+        fields = []
+        cols = list(df.columns)
+        with tqdm(total=len(cols), desc=desc, ncols=100, leave=False) as pbar:
+            for col in cols:
+                sql_type = self.detect_type(df[col])
+                db_name = col if self.copy_file_to_db else ""
+                fields.append({"file": col, "db": db_name, "type": sql_type})
+                pbar.update(1)
+        return fields
+
+    def run(self, output="C.txt"):
+        for path in self.paths:
+            ext = os.path.splitext(path)[1].lower()
+
+            if ext == ".xlsx":
+                sheets = self.process_excel(path)
+                for sheet_name, df in sheets.items():
+                    df = self.normalize_columns(df)
+                    table_name = self.generate_table_name(path, sheet_name)
+                    fields = self.build_fields(df, f"{os.path.basename(path)} | {sheet_name}")
+                    self.tables[table_name] = {
+                        "schema": "",
+                        "collation": self.default_collation,
+                        "input": {"file": path, "sheet": sheet_name},
+                        "fields": fields,
+                    }
+
+            elif ext == ".csv":
+                df = self.process_csv(path)
+                df = self.normalize_columns(df)
+                table_name = self.generate_table_name(path)
+                fields = self.build_fields(df, os.path.basename(path))
+                self.tables[table_name] = {
+                    "schema": "",
+                    "collation": self.default_collation,
+                    "input": {"file": path, "sheet": None},
+                    "fields": fields,
+                }
+
+            elif ext == ".txt":
+                df = self.process_txt(path)
+                df = self.normalize_columns(df)
+                table_name = self.generate_table_name(path)
+                fields = self.build_fields(df, os.path.basename(path))
+                self.tables[table_name] = {
+                    "schema": "",
+                    "collation": self.default_collation,
+                    "input": {"file": path, "sheet": None},
+                    "fields": fields,
+                }
+
+        if os.path.exists(output):
+            os.remove(output)
+        with open(output, "w", encoding="utf-8") as f:
+            json.dump({"tables": self.tables}, f, ensure_ascii=False, indent=4)
+
+        return self.tables
 
 
-class DatabaseBuilder:
-    def __init__(self, copy_file_to_db_name=False):
-        self.cfg = CONFIG
-        self.engine = None
-        self.copy_file_to_db_name = copy_file_to_db_name
 
-    def build_engine(self):
-        driver = self.cfg["pyodbc_driver"]
-        server = self.cfg["server_ip"]
-        database = self.cfg["database_name"]
-        username = self.cfg["username"]
-        password = self.cfg["password"]
-        auth = self.cfg["auth_method"]
+# extractor = FileStructureExtractor(
+#     paths=[
+#         r"D:\Data\Users.xlsx",
+#         r"D:\Data\Products.csv"
+#     ],
+#     copy_file_to_db=True
+# )
 
-        if auth == "WinAuth":
-            conn = f"Driver={driver};Server={server};Database={database};Trusted_Connection=yes;"
-        else:
-            conn = f"Driver={driver};Server={server};Database={database};UID={username};PWD={password};"
-
-        from urllib.parse import quote_plus
-        conn_url = "mssql+pyodbc:///?odbc_connect=" + quote_plus(conn)
-
-        try:
-            self.engine = create_engine(conn_url, fast_executemany=True)
-            with self.engine.connect() as c:
-                c.execute(text("SELECT 1"))
-            display(Markdown("### ✅ Connection test passed."))
-        except SQLAlchemyError as e:
-            display(Markdown(f"### ❌ Connection failed:\n```\n{str(e)}\n```"))
-            raise e
-
-    def map_type(self, t):
-        t = t.upper()
-        if t == "DATE":
-            return Date()
-        if t.startswith("DATETIME"):
-            return DateTime()
-        if t == "SMALLINT":
-            return SmallInteger()
-        if t == "INT":
-            return Integer()
-        if t == "BIGINT":
-            return BigInteger()
-        if t.startswith("DECIMAL"):
-            inside = t[t.find("(")+1:t.find(")")]
-            p, s = inside.split(",")
-            return Numeric(int(p), int(s))
-        if t.startswith("NVARCHAR(MAX)"):
-            return String(None)
-        if t.startswith("NVARCHAR("):
-            n = int(t[t.find("(")+1:t.find(")")])
-            return String(n)
-        return String(None)
-
-    def apply_collation_full(self, schema, table_name, collation, fields):
-        fq = f"{schema}.{table_name}" if schema else table_name
-        with self.engine.connect() as conn:
-            try:
-                conn.execute(text(f"ALTER TABLE {fq} COLLATE {collation}"))
-            except:
-                pass
-            for f in fields:
-                col_name = f["db"] if f["db"] else f["file"]
-                col_type = f["type"].upper()
-                if col_type.startswith("NVARCHAR"):
-                    try:
-                        conn.execute(text(
-                            f"ALTER TABLE {fq} ALTER COLUMN {col_name} {col_type} COLLATE {collation}"
-                        ))
-                    except:
-                        pass
-
-    def create_tables(self):
-        if self.engine is None:
-            display(Markdown("### ❌ Engine not initialized"))
-            return
-
-        created_tables = {}
-
-        for table_name, table_def in self.cfg["tables"].items():
-            display(Markdown(f"---\n## ▶️ Creating table: **{table_name}**"))
-
-            schema = table_def.get("schema", "")
-            collation = table_def.get("collation", "SQL_Latin1_General_CP1256_CI_AS")
-
-            metadata = MetaData(schema=schema if schema else None)
-
-            cols = []
-            for field in table_def["fields"]:
-                db_name = field["db"]
-                if self.copy_file_to_db_name and not db_name:
-                    db_name = field["file"]
-                if not db_name:
-                    display(Markdown(f"⚠️ Field skipped (missing db name)"))
-                    continue
-                sqlalchemy_type = self.map_type(field["type"])
-                if isinstance(sqlalchemy_type, String):
-                    sqlalchemy_type = String(getattr(sqlalchemy_type, "length", None), collation=collation)
-                col_obj = Column(db_name, sqlalchemy_type)
-                cols.append(col_obj)
-
-            table_obj = Table(table_name, metadata, *cols)
-
-            try:
-                metadata.create_all(self.engine)
-                display(Markdown(f"### ✅ Table `{table_name}` created."))
-            except SQLAlchemyError as e:
-                display(Markdown(f"### ❌ Error creating `{table_name}`:\n```\n{str(e)}\n```"))
-                continue
-
-            self.apply_collation_full(schema, table_name, collation, table_def["fields"])
-            display(Markdown(f"### 🔤 Collation `{collation}` applied."))
-
-            result_info = [{"column": c.name, "type": str(c.type)} for c in cols]
-            created_tables[table_name] = result_info
-
-            display(Markdown("### ✔ Finished.\n"))
-
-        display(Markdown("# 🎉 All tables created successfully"))
-        return created_tables
-
-
-
-
-#DatabaseBuilder(copy_file_to_db_name=True)
-
+# result = extractor.run("C.txt")
+# result
