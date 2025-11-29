@@ -7,9 +7,8 @@ from tqdm import tqdm
 
 
 class FileStructureExtractor:
-    def __init__(self, paths, sample_rows=5000, copy_file_to_db_name=False):
+    def __init__(self, paths, copy_file_to_db_name=False):
         self.paths = paths if isinstance(paths, list) else [paths]
-        self.sample_rows = sample_rows
         self.copy_file_to_db_name = copy_file_to_db_name
         self.tables = {}
         warnings.filterwarnings("ignore", category=UserWarning)
@@ -43,8 +42,9 @@ class FileStructureExtractor:
 
         dt_parsed = pd.to_datetime(s_str, errors="coerce", infer_datetime_format=True)
         dt_non_null = dt_parsed.dropna()
-        if not dt_non_null.empty and len(dt_non_non_null := dt_non_null) / len(s_str) >= 0.8:
-            if all(t == dt.time(0, 0) for t in dt_non_null.dt.time):
+        if not dt_non_null.empty and len(dt_non_null) / len(s_str) >= 0.8:
+            times = dt_non_null.dt.time
+            if all(t == dt.time(0, 0) for t in times):
                 return "DATE"
             return "DATETIME2(0)"
 
@@ -103,13 +103,7 @@ class FileStructureExtractor:
             for col in cols:
                 t = self.detect_type(df[col])
                 db_name = col if self.copy_file_to_db_name else ""
-                fields.append(
-                    {
-                        "file": col,
-                        "db": db_name,
-                        "type": t
-                    }
-                )
+                fields.append({"file": col, "db": db_name, "type": t})
                 pbar.update(1)
         return fields
 
@@ -162,16 +156,10 @@ class FileStructureExtractor:
 
 
 
-# paths = [
-#     r"D:\Data\Users.xlsx",
-#     r"D:\Data\Products.csv",
-#     r"D:\Data\Logs.txt"
-# ]
-
 # extractor = FileStructureExtractor(
-#     paths=paths,
-#     sample_rows=5000,
+#     paths=[r"D:\Data\Users.xlsx"],
 #     copy_file_to_db_name=True
 # )
 
 # extractor.run("C.txt")
+
