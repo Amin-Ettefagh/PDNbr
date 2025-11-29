@@ -2,7 +2,6 @@ import os
 import math
 import time
 from io import BytesIO
-
 import msoffcrypto
 import pandas as pd
 from tqdm import tqdm
@@ -25,7 +24,6 @@ class ConfigDataLoader:
         username = self.cfg["username"]
         password = self.cfg["password"]
         auth = self.cfg["auth_method"]
-
         if auth == "WinAuth":
             conn_str = (
                 f"Driver={driver};"
@@ -41,29 +39,27 @@ class ConfigDataLoader:
                 f"UID={username};"
                 f"PWD={password};"
             )
-
         from urllib.parse import quote_plus
         url = "mssql+pyodbc:///?odbc_connect=" + quote_plus(conn_str)
-
         attempt = 0
         while attempt < max_retries:
             attempt += 1
             try:
-                display(Markdown(f"### 🔌 Trying to connect (attempt {attempt}/{max_retries})"))
+                display(Markdown(f"### 🔌 Connecting ({attempt}/{max_retries})"))
                 self.engine = create_engine(url, fast_executemany=True)
                 with self.engine.connect() as conn:
                     conn.execute(text("SELECT 1"))
-                display(Markdown("### ✅ Connection test passed."))
+                display(Markdown("### ✅ Connection successful"))
                 return True
-            except SQLAlchemyError as e:
+            except Exception as e:
                 display(Markdown(f"### ❌ Connection failed:\n```\n{str(e)}\n```"))
                 if attempt >= max_retries:
-                    display(Markdown("### ⛔ Maximum retry attempts reached. Aborting."))
+                    display(Markdown("### ⛔ Giving up"))
                     return False
                 time.sleep(delay_seconds)
         return False
 
-    def read_excel_maybe_encrypted(self, file_path, sheet):
+    def decrypt_excel(self, file_path, sheet):
         passwords = self.cfg.get("file_password") or []
         with open(file_path, "rb") as f:
             of = msoffcrypto.OfficeFile(f)
@@ -80,14 +76,14 @@ class ConfigDataLoader:
                     of.decrypt(bio)
                     bio.seek(0)
                     df = pd.read_excel(bio, sheet_name=sheet if sheet else 0, engine="openpyxl")
-                    display(Markdown(f"### 🔓 Decrypted Excel `{file_path}` with password."))
+                    display(Markdown(f"### 🔓 Decrypted `{file_path}`"))
                     return df
             except Exception:
                 continue
-        display(Markdown(f"### ❌ Failed to decrypt Excel file `{file_path}` with provided passwords. Skipping table."))
+        display(Markdown(f"### ❌ Wrong password for `{file_path}`, skipped"))
         return None
 
-    def read_csv_with_encodings(self, file_path):
+    def read_csv_enc(self, file_path):
         encodings = self.cfg.get("encoding") or ["utf-8"]
         last_error = None
         for enc in encodings:
@@ -96,9 +92,9 @@ class ConfigDataLoader:
             except Exception as e:
                 last_error = e
                 continue
-        raise last_error if last_error else ValueError("No encoding worked for CSV.")
+        raise last_error
 
-    def read_txt_with_encodings(self, file_path):
+    def read_txt_enc(self, file_path):
         encodings = self.cfg.get("encoding") or ["utf-8"]
         last_error = None
         for enc in encodings:
@@ -110,34 +106,37 @@ class ConfigDataLoader:
             except Exception as e:
                 last_error = e
                 continue
-        raise last_error if last_error else ValueError("No encoding worked for TXT.")
+        raise last_error
 
     def read_file(self, file_path, sheet=None):
         ext = os.path.splitext(file_path)[1].lower()
         if ext in [".xls", ".xlsx", ".xlsm", ".xlsb"]:
-            return self.read_excel_maybe_encrypted(file_path, sheet)
+            return self.decrypt_excel(file_path, sheet)
         if ext == ".csv":
-            return self.read_csv_with_encodings(file_path)
+            return self.read_csv_enc(file_path)
         if ext == ".txt":
-            return self.read_txt_with_encodings(file_path)
-        raise ValueError(f"Unsupported file type: {ext}")
+            return self.read_txt_enc(file_path)
+        raise ValueError(f"Unsupported extension: {ext}")
 
     def cast_series(self, series, type_str):
         t = type_str.upper()
-        s = series
-        if t in ("SMALLINT", "INT", "BIGINT", "DECIMAL(38,0)", "DECIMAL(18,4)"):
-            return pd.to_numeric(s, errors="coerce")
+        if t in ("SMALLINT", "INT", "BIGINT"):
+            return pd.to_numeric(series, errors="coerce").astype("Int64")
+        if t == "DECIMAL(38,0)":
+            return pd.to_numeric(series, errors="coerce").astype("Int64")
+        if t == "DECIMAL(18,4)":
+            return pd.to_numeric(series, errors="coerce")
         if t == "DATE":
-            return pd.to_datetime(s, errors="coerce").dt.date
+            return pd.to_datetime(series, errors="coerce").dt.date
         if t.startswith("DATETIME"):
-            return pd.to_datetime(s, errors="coerce")
+            return pd.to_datetime(series, errors="coerce")
         if t.startswith("NVARCHAR"):
-            return s.astype(str)
-        return s
+            return series.astype(object).apply(lambda x: "" if pd.isna(x) else str(x))
+        return series
 
-    def map_and_cast_dataframe(self, df, table_def):
+    def build_dataframe(self, df, table_def):
         fields = table_def["fields"]
-        data = {}
+        out = {}
         for f in fields:
             src = f["file"]
             dst = f["db"]
@@ -146,24 +145,21 @@ class ConfigDataLoader:
                 continue
             if src not in df.columns:
                 continue
-            col = df[src]
-            data[dst] = self.cast_series(col, t)
-        if not data:
+            out[dst] = self.cast_series(df[src], t)
+        if not out:
             return pd.DataFrame()
-        return pd.DataFrame(data)
+        return pd.DataFrame(out)
 
     def split_batches(self, df):
-        total_rows = len(df)
-        if total_rows == 0:
-            return []
-        if total_rows <= self.batch_size:
+        total = len(df)
+        if total <= self.batch_size:
             return [df]
         batches = []
-        total_batches = math.ceil(total_rows / self.batch_size)
-        for i in range(total_batches):
-            start = i * self.batch_size
-            end = min(start + self.batch_size, total_rows)
-            batches.append(df.iloc[start:end])
+        count = math.ceil(total / self.batch_size)
+        for i in range(count):
+            s = i * self.batch_size
+            e = min(s + self.batch_size, total)
+            batches.append(df.iloc[s:e])
         return batches
 
     def load_all(self):
@@ -175,11 +171,11 @@ class ConfigDataLoader:
             sheet_name = table_def["input"]["sheet"]
             schema = table_def.get("schema") or None
 
-            display(Markdown(f"---\n## ▶️ Loading data for table **{table_name}**"))
-            display(Markdown(f"**Source file:** `{file_path}`  \n**Sheet:** `{sheet_name}`"))
+            display(Markdown(f"---\n## ▶️ Loading into **{table_name}**"))
+            display(Markdown(f"`{file_path}`"))
 
             if not os.path.exists(file_path):
-                display(Markdown(f"### ❌ File not found: `{file_path}`"))
+                display(Markdown(f"### ❌ File not found"))
                 continue
 
             try:
@@ -187,24 +183,22 @@ class ConfigDataLoader:
                 if df_raw is None:
                     continue
             except Exception as e:
-                display(Markdown(f"### ❌ Error reading file `{file_path}`:\n```\n{str(e)}\n```"))
+                display(Markdown(f"### ❌ Read error:\n```\n{str(e)}\n```"))
                 continue
 
-            df_mapped = self.map_and_cast_dataframe(df_raw, table_def)
+            df_mapped = self.build_dataframe(df_raw, table_def)
             total_rows = len(df_mapped)
-
             if total_rows == 0:
-                display(Markdown("### ⚠ No rows to insert after mapping."))
+                display(Markdown("### ⚠ No rows"))
                 continue
 
             batches = self.split_batches(df_mapped)
             total_batches = len(batches)
 
-            pbar_desc = f"{os.path.basename(file_path)} → {table_name}"
-            with tqdm(total=total_batches, desc=pbar_desc, ncols=100, unit="batch") as pbar:
-                for i, batch_df in enumerate(batches, start=1):
+            with tqdm(total=total_batches, desc=f"{os.path.basename(file_path)} → {table_name}", ncols=100, unit="batch") as pbar:
+                for i, b in enumerate(batches, start=1):
                     try:
-                        batch_df.to_sql(
+                        b.to_sql(
                             name=table_name,
                             con=self.engine,
                             schema=schema,
@@ -213,15 +207,14 @@ class ConfigDataLoader:
                             method="multi",
                             chunksize=10_000
                         )
-                    except SQLAlchemyError as e:
-                        display(Markdown(f"### ❌ Error inserting batch {i}/{total_batches} for `{table_name}`:\n```\n{str(e)}\n```"))
+                    except Exception as e:
+                        display(Markdown(f"### ❌ Insert error batch {i}:\n```\n{str(e)}\n```"))
                         break
                     pbar.update(1)
 
-            display(Markdown(f"### ✅ Finished loading table `{table_name}` ({total_rows} rows)."))
-        display(Markdown("# 🎉 All data load tasks completed."))
+            display(Markdown(f"### ✅ Finished `{table_name}` ({total_rows} rows)"))
 
-
+        display(Markdown("# 🎉 Completed all loads"))
 
 
 
