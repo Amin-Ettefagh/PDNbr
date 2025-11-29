@@ -1,9 +1,5 @@
-"collation": "SQL_Latin1_General_CP1256_CI_AS"
-
-
-
 import json
-from sqlalchemy import create_engine, MetaData, Table, Column, text
+from sqlalchemy import create_engine, MetaData, Table, Column, text, BigInteger
 from sqlalchemy.types import (
     Integer, SmallInteger, BigInteger, String,
     Date, DateTime, Numeric
@@ -14,9 +10,10 @@ from Config import CONFIG
 
 
 class DatabaseBuilder:
-    def __init__(self):
+    def __init__(self, add_primary_key=True):
         self.cfg = CONFIG
         self.engine = None
+        self.add_primary_key = add_primary_key
 
     def build_engine(self):
         driver = self.cfg["pyodbc_driver"]
@@ -80,12 +77,10 @@ class DatabaseBuilder:
     def apply_collation_full(self, schema, table_name, collation, fields):
         with self.engine.connect() as conn:
             fq_table = f"{schema}.{table_name}" if schema else table_name
-
             try:
                 conn.execute(text(f"ALTER TABLE {fq_table} COLLATE {collation}"))
             except SQLAlchemyError:
                 pass
-
             for f in fields:
                 col_name = f["db"]
                 col_type = f["type"].upper()
@@ -112,18 +107,20 @@ class DatabaseBuilder:
             collation = table_def.get("collation", None)
 
             metadata = MetaData(schema=schema if schema else None)
-
             cols = []
+
+            if self.add_primary_key:
+                cols.append(
+                    Column("ID", BigInteger(), primary_key=True, autoincrement=True)
+                )
+
             for field in table_def["fields"]:
                 col_name = field["db"]
                 col_type = field["type"]
-
                 if not col_name:
                     display(Markdown(f"⚠️ Skipped field with empty db name in `{table_name}`"))
                     continue
-
                 sqlalchemy_type = self.map_type(col_type)
-
                 col_obj = Column(col_name, sqlalchemy_type)
                 cols.append(col_obj)
 
@@ -131,6 +128,13 @@ class DatabaseBuilder:
 
             try:
                 metadata.create_all(self.engine)
+                if self.add_primary_key:
+                    with self.engine.connect() as conn:
+                        fq_table = f"{schema}.{table_name}" if schema else table_name
+                        conn.execute(text(
+                            f"IF NOT EXISTS (SELECT 1 FROM sys.identity_columns WHERE object_id = OBJECT_ID('{fq_table}') AND seed_value = 1001) "
+                            f"DBCC CHECKIDENT ('{fq_table}', RESEED, 1000)"
+                        ))
                 display(Markdown(f"### ✅ Table `{table_name}` created successfully."))
             except SQLAlchemyError as e:
                 display(Markdown(f"### ❌ Error creating table `{table_name}`:\n```\n{str(e)}\n```"))
@@ -148,8 +152,11 @@ class DatabaseBuilder:
                 })
 
             created_tables[table_name] = result_info
-
             display(Markdown("### ✔ Finished.\n"))
 
         display(Markdown("# 🎉 All table creation tasks completed."))
         return created_tables
+
+
+
+# DatabaseBuilder(add_primary_key=True)
