@@ -17,11 +17,14 @@ class FileStructureExtractor:
     def detect_type(self, series):
         s = series.dropna()
         if s.empty:
-            return "NVARCHAR(255)"
+            return "NVARCHAR(25)"
+
         if len(s) > self.sample_rows:
             s = s.sample(self.sample_rows, random_state=0)
+
         s_str = s.astype(str)
 
+        # Detect numeric
         num = pd.to_numeric(s_str, errors="coerce")
         num_non_null = num.dropna()
         if not num_non_null.empty and len(num_non_null) / len(s_str) >= 0.8:
@@ -43,6 +46,7 @@ class FileStructureExtractor:
                 return "DECIMAL(38,0)"
             return "DECIMAL(18,4)"
 
+        # Detect date/datetime
         dt_parsed = pd.to_datetime(s_str, errors="coerce", infer_datetime_format=True)
         dt_non_null = dt_parsed.dropna()
         if not dt_non_null.empty and len(dt_non_null) / len(s_str) >= 0.8:
@@ -51,13 +55,27 @@ class FileStructureExtractor:
                 return "DATE"
             return "DATETIME2(0)"
 
+        # TEXT → Always NVARCHAR with ranges
         lengths = s_str.str.len()
         max_len = int(lengths.max())
+
         if max_len <= 0:
             max_len = 1
-        if max_len > 4000:
-            return "NVARCHAR(MAX)"
-        return f"NVARCHAR({max_len})"
+
+        if max_len <= 25:
+            return "NVARCHAR(25)"
+        if max_len <= 50:
+            return "NVARCHAR(50)"
+        if max_len <= 75:
+            return "NVARCHAR(75)"
+        if max_len <= 100:
+            return "NVARCHAR(100)"
+        if max_len <= 200:
+            return "NVARCHAR(200)"
+        if max_len <= 300:
+            return "NVARCHAR(300)"
+
+        return "NVARCHAR(MAX)"
 
     def process_txt(self, path):
         with open(path, "r", encoding="utf-8", errors="ignore") as f:
