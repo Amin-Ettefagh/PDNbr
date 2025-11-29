@@ -106,7 +106,7 @@ class FileStructureExtractor:
     def build_fields_with_progress(self, df, desc):
         fields = []
         cols = list(df.columns)
-        with tqdm(total=len(cols), desc=desc, ncols=100, leave=False) as pbar:
+        with tqdm(total=len(cols), desc=desc, ncols=100, leave=True) as pbar:
             for col in cols:
                 t = self.detect_type(df[col])
                 db_name = col if self.copy_file_to_db_name else ""
@@ -166,8 +166,6 @@ class FileStructureExtractor:
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump({"tables": self.tables}, f, ensure_ascii=False, indent=4)
 
-        return {"tables": self.tables}
-
 
 
 
@@ -183,6 +181,4 @@ class FileStructureExtractor:
 #     copy_file_to_db_name=True
 # )
 
-# result = extractor.run("C.txt")
-
-# print("DONE")
+# extractor.run("C.txt")
