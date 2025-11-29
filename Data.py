@@ -10,6 +10,19 @@ from IPython.display import display, Markdown
 from Config import CONFIG
 
 
+def normalize_numeric(v):
+    if pd.isna(v):
+        return None
+    s = str(v).strip()
+    s = s.replace("۰", "0").replace("۱", "1").replace("۲", "2").replace("۳", "3").replace("۴", "4")
+    s = s.replace("۵", "5").replace("۶", "6").replace("۷", "7").replace("۸", "8").replace("۹", "9")
+    s = s.replace("٬", ",").replace("٫", ".")
+    s = s.replace("\u200c", "").replace("\u200f", "")
+    if s in ["", "-", "—", "_"]:
+        return None
+    return s
+
+
 class ConfigDataLoader:
     def __init__(self, batch_size=1_000_000, max_params=2000):
         self.cfg = CONFIG
@@ -33,8 +46,8 @@ class ConfigDataLoader:
         for i in range(max_retries):
             try:
                 self.engine = create_engine(url, fast_executemany=True)
-                with self.engine.connect() as conn:
-                    conn.execute(text("SELECT 1"))
+                with self.engine.connect() as c:
+                    c.execute(text("SELECT 1"))
                 display(Markdown("### ✅ Connection successful"))
                 return True
             except Exception:
@@ -56,10 +69,10 @@ class ConfigDataLoader:
                     bio = BytesIO()
                     of.decrypt(bio)
                     bio.seek(0)
-                    df = pd.read_excel(bio, sheet_name=sheet if sheet else 0, engine="openpyxl")
-                    return df
+                    return pd.read_excel(bio, sheet_name=sheet if sheet else 0, engine="openpyxl")
             except Exception:
                 continue
+        display(Markdown(f"### ❌ Wrong password for `{file_path}`, skipped"))
         return None
 
     def read_csv(self, file_path):
@@ -78,7 +91,7 @@ class ConfigDataLoader:
                 with open(file_path, "r", encoding=e, errors="strict") as f:
                     sample = f.read(2048)
                 delim = "," if sample.count(",") >= sample.count("\t") else "\t"
-                return pd.read_csv(file_path, encoding=e, delimiter=delim)
+                return pd.read_csv(file_path, delimiter=delim, encoding=e)
             except Exception:
                 continue
         return None
@@ -96,9 +109,9 @@ class ConfigDataLoader:
     def cast_series(self, s, t):
         t = t.upper()
         if t in ("SMALLINT", "INT", "BIGINT", "DECIMAL(38,0)"):
-            return pd.to_numeric(s, errors="coerce").astype("Int64")
+            return s.apply(lambda x: pd.to_numeric(normalize_numeric(x), errors="coerce")).astype("Int64")
         if t == "DECIMAL(18,4)":
-            return pd.to_numeric(s, errors="coerce")
+            return s.apply(lambda x: pd.to_numeric(normalize_numeric(x), errors="coerce"))
         if t == "DATE":
             return pd.to_datetime(s, errors="coerce").dt.date
         if t.startswith("DATETIME"):
@@ -113,17 +126,17 @@ class ConfigDataLoader:
             src = f["file"]
             dst = f["db"]
             t = f["type"]
-            if dst and src in df:
+            if src in df and dst:
                 out[dst] = self.cast_series(df[src], t)
-        return pd.DataFrame(out) if out else pd.DataFrame()
+        return pd.DataFrame(out)
 
     def split_batches(self, df):
         total = len(df)
         if total <= self.batch_size:
             return [df]
         res = []
-        chunks = math.ceil(total / self.batch_size)
-        for i in range(chunks):
+        c = math.ceil(total / self.batch_size)
+        for i in range(c):
             s = i * self.batch_size
             e = min(s + self.batch_size, total)
             res.append(df.iloc[s:e])
@@ -153,14 +166,13 @@ class ConfigDataLoader:
         for table_name, tdef in self.cfg["tables"].items():
             fp = tdef["input"]["file"]
             sheet = tdef["input"]["sheet"]
-            schema = tdef.get("schema") or None
+            schema = tdef.get("schema")
             display(Markdown(f"## ▶️ {table_name}"))
             if not os.path.exists(fp):
                 display(Markdown("File not found"))
                 continue
             df_raw = self.read_file(fp, sheet)
             if df_raw is None:
-                display(Markdown("Cannot read file, skipped"))
                 continue
             df = self.build_df(df_raw, tdef)
             n = len(df)
@@ -172,5 +184,5 @@ class ConfigDataLoader:
                 for b in batches:
                     self.safe_insert(b, table_name, schema)
                     pb.update(1)
-            display(Markdown(f"### ✅ {n} rows inserted"))
+            display(Markdown(f"### ✅ Inserted {n} rows"))
         display(Markdown("# 🎉 Completed"))
