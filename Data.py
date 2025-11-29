@@ -1,6 +1,9 @@
 import os
 import math
 import time
+from io import BytesIO
+
+import msoffcrypto
 import pandas as pd
 from tqdm import tqdm
 from sqlalchemy import create_engine, text
@@ -60,19 +63,63 @@ class ConfigDataLoader:
                 time.sleep(delay_seconds)
         return False
 
+    def read_excel_maybe_encrypted(self, file_path, sheet):
+        passwords = self.cfg.get("file_password") or []
+        with open(file_path, "rb") as f:
+            of = msoffcrypto.OfficeFile(f)
+            if not of.is_encrypted():
+                return pd.read_excel(file_path, sheet_name=sheet if sheet else 0, engine="openpyxl")
+        for pwd in passwords:
+            try:
+                with open(file_path, "rb") as f:
+                    of = msoffcrypto.OfficeFile(f)
+                    if not of.is_encrypted():
+                        return pd.read_excel(file_path, sheet_name=sheet if sheet else 0, engine="openpyxl")
+                    of.load_key(password=pwd)
+                    bio = BytesIO()
+                    of.decrypt(bio)
+                    bio.seek(0)
+                    df = pd.read_excel(bio, sheet_name=sheet if sheet else 0, engine="openpyxl")
+                    display(Markdown(f"### 🔓 Decrypted Excel `{file_path}` with password."))
+                    return df
+            except Exception:
+                continue
+        display(Markdown(f"### ❌ Failed to decrypt Excel file `{file_path}` with provided passwords. Skipping table."))
+        return None
+
+    def read_csv_with_encodings(self, file_path):
+        encodings = self.cfg.get("encoding") or ["utf-8"]
+        last_error = None
+        for enc in encodings:
+            try:
+                return pd.read_csv(file_path, encoding=enc)
+            except Exception as e:
+                last_error = e
+                continue
+        raise last_error if last_error else ValueError("No encoding worked for CSV.")
+
+    def read_txt_with_encodings(self, file_path):
+        encodings = self.cfg.get("encoding") or ["utf-8"]
+        last_error = None
+        for enc in encodings:
+            try:
+                with open(file_path, "r", encoding=enc, errors="strict") as f:
+                    sample = f.read(2048)
+                delimiter = "," if sample.count(",") >= sample.count("\t") else "\t"
+                return pd.read_csv(file_path, delimiter=delimiter, encoding=enc)
+            except Exception as e:
+                last_error = e
+                continue
+        raise last_error if last_error else ValueError("No encoding worked for TXT.")
+
     def read_file(self, file_path, sheet=None):
         ext = os.path.splitext(file_path)[1].lower()
+        if ext in [".xls", ".xlsx", ".xlsm", ".xlsb"]:
+            return self.read_excel_maybe_encrypted(file_path, sheet)
         if ext == ".csv":
-            return pd.read_csv(file_path)
+            return self.read_csv_with_encodings(file_path)
         if ext == ".txt":
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                sample = f.read(2048)
-            delimiter = "," if sample.count(",") >= sample.count("\t") else "\t"
-            return pd.read_csv(file_path, delimiter=delimiter)
-        if ext in [".xls", ".xlsx"]:
-            if sheet:
-                return pd.read_excel(file_path, sheet_name=sheet)
-            return pd.read_excel(file_path)
+            return self.read_txt_with_encodings(file_path)
         raise ValueError(f"Unsupported file type: {ext}")
 
     def cast_series(self, series, type_str):
@@ -137,6 +184,8 @@ class ConfigDataLoader:
 
             try:
                 df_raw = self.read_file(file_path, sheet_name)
+                if df_raw is None:
+                    continue
             except Exception as e:
                 display(Markdown(f"### ❌ Error reading file `{file_path}`:\n```\n{str(e)}\n```"))
                 continue
@@ -171,6 +220,8 @@ class ConfigDataLoader:
 
             display(Markdown(f"### ✅ Finished loading table `{table_name}` ({total_rows} rows)."))
         display(Markdown("# 🎉 All data load tasks completed."))
+
+
 
 
 
