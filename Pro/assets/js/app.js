@@ -1,918 +1,50 @@
-﻿<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>ERD Studio</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<script src="https://cdn.tailwindcss.com"></script>
-<style>
-body {
-  margin: 0;
-  background: #010409;
-  color: #e5e7eb;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  overflow: hidden;
-}
 
-/* Main layout: header + 3 panels + canvas */
-.app-shell {
-  min-height: 100vh;
-  width: 100vw;
-  display: flex;
-  flex-direction: column;
-  background: #010409;
-}
-
-/* --------------- DARK GPT ULTRA THEME COLORS --------------- */
-.dark-bg {
-  background: #010409;
-}
-.panel-bg {
-  background: #0a0f1d;
-}
-.border-subtle {
-  border-color: #0d1117 !important;
-}
-
-/* --------------- PANELS --------------- */
-.panel {
-  background: #0a0f1d;
-  border-right: 1px solid #0d1117;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-/* Panels with minimize mode */
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: #0a0f1d;
-  padding: 6px 10px;
-  border-bottom: 1px solid #0d1117;
-}
-
-.panel-body {
-  padding: 10px;
-  overflow-y: auto;
-  flex: 1;
-}
-
-/* collapsed panel */
-.panel-collapsed {
-  width: 38px !important;
-  min-width: 38px !important;
-  max-width: 38px !important;
-}
-.panel-collapsed .panel-body {
-  display: none;
-}
-.panel-collapsed .panel-header-title {
-  display: none;
-}
-.panel-collapsed .panel-header-actions > *:not(.panel-toggle-btn) {
-  display: none;
-}
-.panel-collapsed .panel-header {
-  justify-content: center;
-}
-
-.panel-toggle-btn {
-  width: 30px;
-  height: 30px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #0f172a, #0b1327);
-  border: 1px solid #1f2937;
-  color: #cbd5e1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  box-shadow: 0 6px 20px rgba(0,0,0,0.45), inset 0 0 0 1px rgba(255,255,255,0.03);
-  transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
-}
-.panel-toggle-btn:hover {
-  background: #162036;
-  box-shadow: 0 8px 28px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(255,255,255,0.05);
-}
-.panel-toggle-btn:active {
-  transform: scale(0.96);
-}
-
-/* --------------- CANVAS --------------- */
-#canvasPan {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  background: #010409;
-  cursor: default;
-}
-
-#canvasInner {
-  position: absolute;
-  transform-origin: 0 0;
-}
-
-/* --------------- TABLE NODE --------------- */
-.table-node {
-  position: absolute;
-  min-width: 200px;
-  max-width: 260px;
-  background: #0a0f1d;
-  border-radius: 14px;
-  padding: 10px;
-  border: 1px solid #1f2937;
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.8);
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-
-.table-node:hover {
-  box-shadow: 0 0 0 1px #1e40af, 0 14px 40px rgba(0, 0, 0, 0.9);
-}
-
-/* header */
-.table-header {
-  font-size: 12px;
-  font-weight: 600;
-  margin-bottom: 6px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.table-title {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.table-caption {
-  font-size: 10px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: #0d1117;
-  border: 1px solid #1f2937;
-}
-
-/* description */
-.table-desc {
-  font-size: 10px;
-  color: #64748b;
-  margin-bottom: 6px;
-  max-width: 100%;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-/* fields */
-.table-fields {
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-  padding-top: 4px;
-  max-height: 200px;
-  overflow-y: auto;
-}
-
-.table-field-row {
-  display: flex;
-  justify-content: space-between;
-  padding: 3px 6px;
-  font-size: 11px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background-color 0.15s;
-}
-
-.table-field-row:hover {
-  background: #111827;
-}
-
-.table-field-row.selected {
-  background: #1e293b !important;
-}
-
-/* --------------- RELATIONS (SVG) --------------- */
-.line-layer {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-
-.line-path {
-  fill: none;
-  shape-rendering: geometricPrecision;
-}
-
-.relation-hit {
-  stroke: transparent;
-  stroke-width: 16;
-  fill: none;
-  cursor: pointer;
-}
-
-/* --------------- CANVAS CONTROLS --------------- */
-.canvas-controls {
-  position: absolute;
-  right: 12px;
-  top: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  z-index: 20;
-}
-
-.canvas-controls button {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: #0a0f1d;
-  border: 1px solid #1f2937;
-  color: #e5e7eb;
-  font-size: 12px;
-}
-
-.canvas-controls button:hover {
-  background: #1e293b;
-}
-
-#zoomIndicator {
-  position: absolute;
-  right: 12px;
-  top: 180px;
-  background: #0a0f1d;
-  padding: 4px 10px;
-  border-radius: 999px;
-  border: 1px solid #1f2937;
-  font-size: 11px;
-}
-
-/* --------------- STATUS BAR --------------- */
-.canvas-status {
-  position: absolute;
-  bottom: 8px;
-  left: 12px;
-  background: #0a0f1d;
-  border: 1px solid #1f2937;
-  padding: 4px 12px;
-  border-radius: 999px;
-  font-size: 10px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  z-index: 20;
-}
-
-/* --------------- FORM WIDGETS --------------- */
-input, textarea, select {
-  background: #0d1117 !important;
-  border: 1px solid #1f2937 !important;
-  color: #e5e7eb !important;
-  border-radius: 8px !important;
-}
-
-input:focus, textarea:focus, select:focus {
-  outline: none !important;
-  border-color: #38bdf8 !important;
-  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.4);
-}
-
-/* scrollbar */
-.scrollbar-thin::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-.scrollbar-thin::-webkit-scrollbar-track {
-  background: transparent;
-}
-.scrollbar-thin::-webkit-scrollbar-thumb {
-  background: #1f2937;
-  border-radius: 999px;
-}
-
-/* RTL when Persian mode active */
-.rtl {
-  direction: rtl;
-  text-align: right;
-}
-
-/* --------------- LAYOUT GRID --------------- */
-.workspace {
-  flex: 1;
-  display: flex;
-  gap: 10px;
-  padding: 10px;
-  min-height: 0;
-  position: relative;
-}
-
-.canvas-shell {
-  flex: 1;
-  min-width: 0;
-  background: #010409;
-  border: 1px solid #0d1117;
-  border-radius: 14px;
-  overflow: hidden;
-  position: relative;
-}
-
-.side-panel {
-  width: 360px;
-  min-width: 320px;
-  max-width: 420px;
-  background: #0a0f1d;
-  border: 1px solid #0d1117;
-  border-radius: 14px;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  transition: width 0.2s ease, min-width 0.2s ease, max-width 0.2s ease;
-}
-
-.side-panel.collapsed {
-  width: 44px;
-  min-width: 44px;
-  max-width: 44px;
-}
-.side-panel.collapsed .side-panel-scroll,
-.side-panel.collapsed .side-panel-title {
-  display: none;
-}
-.side-panel.collapsed .panel-toggle-btn {
-  transform: rotate(180deg);
-}
-.side-panel.collapsed .side-panel-header {
-  padding: 8px;
-  justify-content: center;
-}
-
-.side-panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
-  border-bottom: 1px solid #0d1117;
-}
-
-.side-panel-title {
-  font-weight: 600;
-  color: #e2e8f0;
-}
-
-.side-panel-scroll {
-  flex: 1;
-  overflow-y: auto;
-  padding: 10px 12px 14px;
-}
-
-.accordion {
-  border: 1px solid #1f2937;
-  border-radius: 10px;
-  background: #0c1220;
-  margin-bottom: 10px;
-}
-
-.accordion-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.accordion-toggle {
-  flex: 1;
-  padding: 10px 12px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: transparent;
-  color: #e5e7eb;
-  border: none;
-  font-size: 12px;
-  cursor: pointer;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-}
-.accordion-toggle:hover {
-  background: #111827;
-}
-.accordion-chevron {
-  width: 22px;
-  height: 22px;
-  border-radius: 8px;
-  background: #0f172a;
-  border: 1px solid #1f2937;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.15s;
-}
-.accordion-toggle.collapsed .accordion-chevron {
-  transform: rotate(-90deg);
-}
-.accordion-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.accordion-actions button,
-.accordion-handle {
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
-  background: #0f172a;
-  border: 1px solid #1f2937;
-  color: #cbd5e1;
-  font-size: 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 6px 18px rgba(0,0,0,0.35), inset 0 0 0 1px rgba(255,255,255,0.03);
-}
-.accordion-actions button:hover,
-.accordion-handle:hover {
-  background: #152340;
-}
-.accordion-pin.active {
-  border-color: #38bdf8;
-  color: #38bdf8;
-  box-shadow: 0 0 0 1px rgba(56,189,248,0.35), 0 8px 22px rgba(0,0,0,0.4);
-}
-.accordion-handle {
-  cursor: grab;
-}
-.accordion.dragging {
-  opacity: 0.6;
-  transform: scale(0.995);
-}
-
-.accordion-body {
-  padding: 10px 12px 12px;
-  border-top: 1px solid #1f2937;
-}
-.accordion-body.collapsed {
-  display: none;
-}
-
-@media (max-width: 1024px) {
-  .workspace {
-    flex-direction: column;
-  }
-  .side-panel,
-  .side-panel.collapsed {
-    width: 100%;
-    min-width: 100%;
-    max-width: 100%;
-  }
-  .side-panel.collapsed .side-panel-scroll,
-  .side-panel.collapsed .side-panel-title {
-    display: block;
-  }
-  .side-panel.collapsed .panel-toggle-btn {
-    transform: rotate(0);
-  }
-}
-
-</style>
-</head>
-<body>
-<div id="loginView" class="min-h-screen flex items-center justify-center dark-bg">
-  <div class="w-full max-w-sm panel-bg border border-subtle rounded-2xl p-6 space-y-4 shadow-2xl">
-    <div class="flex items-center gap-2 mb-2">
-      <div class="w-9 h-9 rounded-2xl bg-gradient-to-br from-sky-500 via-cyan-400 to-emerald-400 flex items-center justify-center text-[11px] font-semibold">
-        ERD
-      </div>
-      <div>
-        <div class="text-sm font-semibold text-slate-50">ERD Studio</div>
-        <div class="text-[11px] text-slate-400">Visual schema designer and SQL generator</div>
-      </div>
-    </div>
-    <div class="space-y-3 text-xs">
-      <div class="space-y-1">
-        <div class="text-slate-300">Username</div>
-        <input id="loginUser" class="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500 text-[12px]" autocomplete="off">
-      </div>
-      <div class="space-y-1">
-        <div class="text-slate-300">Password</div>
-        <input id="loginPass" type="password" class="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500 text-[12px]" autocomplete="off">
-      </div>
-      <button id="loginBtn" class="w-full mt-1 px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 active:bg-sky-700 font-medium transition text-[12px]">
-        Sign in
-      </button>
-      <div id="loginError" class="h-4 text-[11px] text-red-400"></div>
-      <div class="text-[10px] text-slate-500 text-center">
-        Use <span class="font-semibold text-slate-200">admin</span> / <span class="font-semibold text-slate-200">admin</span>
-      </div>
-    </div>
-  </div>
-</div>
-
-<div id="configView" class="hidden min-h-screen flex items-center justify-center dark-bg">
-  <div class="w-full max-w-lg panel-bg border border-subtle rounded-2xl p-6 space-y-4 shadow-2xl">
-    <div class="mb-2">
-      <div class="text-sm font-semibold text-slate-50">Database configuration</div>
-      <div class="text-[11px] text-slate-400">Choose engine, version and optional JSON/SQL to start from</div>
-    </div>
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-      <div class="space-y-2">
-        <div>
-          <div class="mb-1 text-slate-300">Database name</div>
-          <input id="cfgDbName" class="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500" value="my_database">
-        </div>
-        <div>
-          <div class="mb-1 text-slate-300">Engine</div>
-          <select id="cfgDbType" class="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500">
-            <option value="mysql">MySQL</option>
-            <option value="postgres">PostgreSQL</option>
-            <option value="sqlite">SQLite</option>
-            <option value="sqlserver">SQL Server</option>
-          </select>
-        </div>
-        <div>
-          <div class="mb-1 text-slate-300">Version</div>
-          <select id="cfgDbVersion" class="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500">
-            <option value="latest">Latest</option>
-          </select>
-        </div>
-      </div>
-      <div class="space-y-3">
-        <div>
-          <div class="mb-1 text-slate-300">JSON schema file</div>
-          <input id="cfgJsonFile" type="file" accept=".json" class="block w-full text-[11px] text-slate-300 file:text-[11px] file:px-2 file:py-1.5 file:rounded-lg file:border-0 file:bg-slate-900 file:text-slate-100">
-          <div class="mt-1 text-[10px] text-slate-500">Optional. Full model with tables, fields and relations.</div>
-        </div>
-        <div>
-          <div class="mb-1 text-slate-300">SQL file</div>
-          <input id="cfgSqlFile" type="file" accept=".sql,.txt" class="block w-full text-[11px] text-slate-300 file:text-[11px] file:px-2 file:py-1.5 file:rounded-lg file:border-0 file:bg-slate-900 file:text-slate-100">
-          <div class="mt-1 text-[10px] text-slate-500">Optional. Simple CREATE TABLE with foreign keys.</div>
-        </div>
-      </div>
-    </div>
-    <div class="flex items-center justify-between mt-2 text-xs">
-      <button id="cfgBack" class="px-3 py-2 rounded-xl border border-slate-700 text-slate-200 hover:bg-slate-900">
-        Back
-      </button>
-      <div class="flex items-center gap-3">
-        <div id="cfgStatus" class="text-[11px] text-slate-400"></div>
-        <button id="cfgContinue" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 font-semibold">
-          Continue to designer
-        </button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<div id="mainView" class="hidden app-shell">
-  <header class="border-b border-subtle bg-[#020617]">
-    <div class="w-full px-3 md:px-4 py-2.5 flex items-center justify-between gap-4">
-      <div class="flex items-center gap-2">
-        <div class="w-9 h-9 rounded-2xl bg-gradient-to-br from-sky-500 via-cyan-500 to-emerald-500 flex items-center justify-center text-[11px] font-semibold">
-          ERD
-        </div>
-        <div>
-          <div class="text-sm font-semibold text-slate-50">ERD Studio</div>
-          <div class="text-[11px] text-slate-400" id="headerSubtitle"></div>
-        </div>
-      </div>
-      <div class="flex items-center gap-3 text-[11px]">
-        <div class="hidden md:flex items-center gap-2">
-          <div class="px-2 py-1 rounded-full bg-slate-950 border border-slate-800 flex items-center gap-2">
-            <span class="text-slate-500">DB</span>
-            <span id="headerDbName" class="font-medium text-slate-100"></span>
-          </div>
-          <div class="px-2 py-1 rounded-full bg-slate-950 border border-slate-800 flex items-center gap-2">
-            <span id="headerDbType" class="font-medium text-slate-100"></span>
-            <span id="headerDbVersion" class="text-slate-500"></span>
-          </div>
-        </div>
-        <div class="flex items-center gap-1 border border-slate-700 rounded-full px-1 py-0.5">
-          <button id="displayEnBtn" class="px-2 py-0.5 rounded-full text-[10px] bg-sky-600 text-slate-50">EN</button>
-          <button id="displayFaBtn" class="px-2 py-0.5 rounded-full text-[10px] text-slate-300">FA</button>
-        </div>
-        <button id="exportJsonBtn" class="hidden sm:inline-flex px-2.5 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-900">Export JSON</button>
-        <button id="exportSqlBtn" class="hidden sm:inline-flex px-2.5 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-900">Export SQL</button>
-        <button id="logoutBtn" class="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-900">Logout</button>
-      </div>
-    </div>
-  </header>
-
-  <div class="workspace">
-    <div class="canvas-shell">
-      <div id="canvasPan">
-        <svg id="relationLayer" class="line-layer"></svg>
-        <div id="canvasInner"></div>
-        <div class="canvas-controls">
-          <button id="zoomInBtn" class="w-8 h-8 rounded-full bg-slate-950 border border-slate-800 flex items-center justify-center text-xs hover:bg-slate-900 text-slate-100">+</button>
-          <button id="zoomOutBtn" class="w-8 h-8 rounded-full bg-slate-950 border border-slate-800 flex items-center justify-center text-xs hover:bg-slate-900 text-slate-100">-</button>
-          <button id="zoomResetBtn" class="w-8 h-8 rounded-full bg-slate-950 border border-slate-800 flex items-center justify-center text-[10px] hover:bg-slate-900 text-slate-100">100</button>
-          <button id="panModeBtn" class="w-10 h-7 rounded-full bg-slate-950 border border-slate-800 flex items-center justify-center text-[10px] hover:bg-slate-900 text-slate-100">Pan</button>
-        </div>
-        <div id="zoomIndicator"></div>
-        <div class="canvas-status">
-          <span id="statusSelection">No selection</span>
-          <span class="text-slate-600">•</span>
-          <span id="statusZoom">100%</span>
-          <span class="text-slate-600">•</span>
-          <span class="text-slate-400 text-[9px]">Use Ctrl + wheel or +/- to zoom</span>
-        </div>
-      </div>
-    </div>
-
-    <aside id="sidePanel" class="side-panel text-xs">
-      <div class="side-panel-header">
-        <div class="side-panel-title">Panel</div>
-        <button id="collapsePanelBtn" class="panel-toggle-btn" title="Toggle panel">⟨</button>
-      </div>
-            <div class="side-panel-scroll scrollbar-thin" id="sidePanelScroll">
-        <div class="accordion" data-section="json" data-order="0" data-pinned="false">
-          <div class="accordion-head">
-            <button class="accordion-toggle" data-target="jsonAccordion">
-              <span>Schema JSON</span>
-              <span class="accordion-chevron">▾</span>
-            </button>
-            <div class="accordion-actions">
-              <button class="accordion-pin" title="Pin section">📌</button>
-              <button class="accordion-handle" title="Drag (right-click hold) to reorder">⋮⋮</button>
-            </div>
-          </div>
-          <div id="jsonAccordion" class="accordion-body space-y-2">
-            <div class="flex items-center justify-between gap-2">
-              <div class="text-slate-300 text-[11px]">Schema JSON</div>
-              <button id="copyJsonBtn" class="px-2 py-1 rounded-md border border-slate-700 hover:bg-slate-900 text-[10px]">Copy</button>
-            </div>
-            <textarea id="jsonArea" class="w-full min-h-[160px] h-[26vh] resize-none bg-slate-950 border border-slate-900 rounded-lg p-2 text-[11px] font-mono leading-snug scrollbar-thin focus:outline-none focus:ring-1 focus:ring-sky-600"></textarea>
-            <button id="importJsonBtn" class="w-full px-2 py-1.5 rounded-md bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[11px]">Import JSON into diagram</button>
-          </div>
-        </div>
-
-        <div class="accordion" data-section="sql" data-order="1" data-pinned="false">
-          <div class="accordion-head">
-            <button class="accordion-toggle" data-target="sqlAccordion">
-              <span>Database SQL</span>
-              <span class="accordion-chevron">▾</span>
-            </button>
-            <div class="accordion-actions">
-              <button class="accordion-pin" title="Pin section">📌</button>
-              <button class="accordion-handle" title="Drag (right-click hold) to reorder">⋮⋮</button>
-            </div>
-          </div>
-          <div id="sqlAccordion" class="accordion-body space-y-2">
-            <div class="flex items-center justify-between gap-2">
-              <div class="text-slate-300 text-[11px]">Database SQL</div>
-              <button id="copySqlBtn" class="px-2 py-1 rounded-md border border-slate-700 hover:bg-slate-900 text-[10px]">Copy</button>
-            </div>
-            <textarea id="sqlArea" class="w-full min-h-[160px] h-[26vh] resize-none bg-slate-950 border border-slate-900 rounded-lg p-2 text-[11px] font-mono leading-snug scrollbar-thin focus:outline-none focus:ring-1 focus:ring-sky-600"></textarea>
-            <button id="applySqlBtn" class="w-full px-2 py-1.5 rounded-md bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[11px]">Apply SQL to design</button>
-          </div>
-        </div>
-
-        <div class="accordion" data-section="table" data-order="2" data-pinned="false">
-          <div class="accordion-head">
-            <button class="accordion-toggle" data-target="tableAccordion">
-              <span>Table editor</span>
-              <span class="accordion-chevron">▾</span>
-            </button>
-            <div class="accordion-actions">
-              <button class="accordion-pin" title="Pin section">📌</button>
-              <button class="accordion-handle" title="Drag (right-click hold) to reorder">⋮⋮</button>
-            </div>
-          </div>
-          <div id="tableAccordion" class="accordion-body space-y-3">
-            <div class="flex items-center justify-between">
-              <div class="text-[10px] text-slate-400">Select a table, field or relation</div>
-              <button id="newTableBtn" class="px-2.5 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-[11px]">New</button>
-            </div>
-            <div class="flex items-center gap-2">
-              <div class="flex-1">
-                <div class="mb-1 text-slate-300">Current table</div>
-                <select id="tableSelect" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600"></select>
-              </div>
-              <button id="deleteBtn" class="mt-5 px-2.5 py-1.5 rounded-md border border-red-600 text-red-300 hover:bg-red-950 text-[11px]">Delete</button>
-            </div>
-
-            <div class="grid grid-cols-2 gap-2">
-              <div class="space-y-1">
-                <div class="text-slate-300">Table name</div>
-                <input id="tblName" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600">
-              </div>
-              <div class="space-y-1">
-                <div class="text-slate-300">Schema</div>
-                <select id="tblSchemaSelect" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600"></select>
-              </div>
-              <div class="space-y-1">
-                <div class="text-slate-300">Persian name</div>
-                <input id="tblFaName" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600">
-              </div>
-              <div class="space-y-1">
-                <div class="text-slate-300">Delete behavior</div>
-                <select id="tblDeleteBehavior" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600">
-                  <option value="none">None</option>
-                  <option value="cascade">CASCADE dependents</option>
-                  <option value="set_null">SET NULL dependents</option>
-                </select>
-              </div>
-            </div>
-            <div class="space-y-1">
-              <div class="text-slate-300">Description</div>
-              <textarea id="tblDescription" class="w-full min-h-[60px] px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600"></textarea>
-            </div>
-          </div>
-        </div>
-
-        <div class="accordion" data-section="field" data-order="3" data-pinned="false">
-          <div class="accordion-head">
-            <button class="accordion-toggle" data-target="fieldAccordion">
-              <span>Selected field</span>
-              <span class="accordion-chevron">▾</span>
-            </button>
-            <div class="accordion-actions">
-              <button class="accordion-pin" title="Pin section">📌</button>
-              <button class="accordion-handle" title="Drag (right-click hold) to reorder">⋮⋮</button>
-            </div>
-          </div>
-          <div id="fieldAccordion" class="accordion-body space-y-2">
-            <div class="flex items-center justify-between">
-              <div class="text-[10px] text-slate-400">Click a field on canvas to edit it here.</div>
-              <button id="addFieldBtn" class="px-2 py-1 rounded-md bg-slate-900 hover:bg-slate-800 text-[11px]">Add field</button>
-            </div>
-            <div class="grid grid-cols-2 gap-2">
-              <div class="space-y-1">
-                <div class="text-slate-300">Name</div>
-                <input id="fldName" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600">
-              </div>
-              <div class="space-y-1">
-                <div class="text-slate-300">Persian name</div>
-                <input id="fldFaName" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600">
-              </div>
-              <div class="space-y-1">
-                <div class="text-slate-300">Type</div>
-                <select id="fldType" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600"></select>
-              </div>
-              <div class="space-y-1">
-                <div class="text-slate-300">Options</div>
-                <div class="flex gap-2 items-center">
-                  <label class="flex items-center gap-1 text-[11px]"><input id="fldNullable" type="checkbox" class="accent-sky-500"><span>Nullable</span></label>
-                  <label class="flex items-center gap-1 text-[11px]"><input id="fldPrimary" type="checkbox" class="accent-sky-500"><span>Primary</span></label>
-                </div>
-              </div>
-            </div>
-            <div class="space-y-1">
-              <div class="text-slate-300">Description</div>
-              <input id="fldDescription" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600">
-            </div>
-            <div class="flex items-center justify-between gap-2">
-              <label class="flex items-center gap-1 text-[11px]">
-                <input id="fldPinned" type="checkbox" class="accent-sky-500">
-                <span>Pin to top</span>
-              </label>
-              <div class="flex gap-1">
-                <button id="moveFieldUp" class="px-2 py-1 rounded-md border border-slate-700 hover:bg-slate-900 text-[11px]">▲</button>
-                <button id="moveFieldDown" class="px-2 py-1 rounded-md border border-slate-700 hover:bg-slate-900 text-[11px]">▼</button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="accordion" data-section="relations" data-order="4" data-pinned="false">
-          <div class="accordion-head">
-            <button class="accordion-toggle" data-target="relationsAccordion">
-              <span>Relations</span>
-              <span class="accordion-chevron">▾</span>
-            </button>
-            <div class="accordion-actions">
-              <button class="accordion-pin" title="Pin section">📌</button>
-              <button class="accordion-handle" title="Drag (right-click hold) to reorder">⋮⋮</button>
-            </div>
-          </div>
-          <div id="relationsAccordion" class="accordion-body space-y-2">
-            <div class="grid grid-cols-2 gap-2">
-              <div class="space-y-1">
-                <div class="text-slate-300">From table</div>
-                <select id="relFromTable" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600"></select>
-              </div>
-              <div class="space-y-1">
-                <div class="text-slate-300">From field</div>
-                <select id="relFromField" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600"></select>
-              </div>
-              <div class="space-y-1">
-                <div class="text-slate-300">To table</div>
-                <select id="relToTable" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600"></select>
-              </div>
-              <div class="space-y-1">
-                <div class="text-slate-300">To field</div>
-                <select id="relToField" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600"></select>
-              </div>
-              <div class="space-y-1">
-                <div class="text-slate-300">On delete</div>
-                <select id="relOnDelete" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600">
-                  <option value="no_action">NO ACTION</option>
-                  <option value="cascade">CASCADE</option>
-                  <option value="set_null">SET NULL</option>
-                </select>
-              </div>
-              <div class="flex items-end">
-                <button id="addRelationBtn" class="w-full px-2 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-[11px]">Add relation</button>
-              </div>
-            </div>
-
-            <div class="pt-2 space-y-2">
-              <div class="font-semibold text-slate-100">Selected relation</div>
-              <div class="grid grid-cols-2 gap-2 text-[11px]">
-                <div class="space-y-1">
-                  <div class="text-slate-300">Source label</div>
-                  <input id="relSourceLabel" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800">
-                </div>
-                <div class="space-y-1">
-                  <div class="text-slate-300">Target label</div>
-                  <input id="relTargetLabel" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800">
-                </div>
-                <div class="space-y-1">
-                  <div class="text-slate-300">Center label</div>
-                  <input id="relCenterLabel" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800">
-                </div>
-                <div class="space-y-1">
-                  <div class="text-slate-300">Style</div>
-                  <select id="relStyle" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800">
-                    <option value="schema">Schema color</option>
-                    <option value="solid">Solid</option>
-                    <option value="dashed">Dashed</option>
-                    <option value="dotted">Dotted</option>
-                    <option value="gradient">Gradient</option>
-                  </select>
-                </div>
-                <div class="space-y-1">
-                  <div class="text-slate-300">Color A</div>
-                  <input id="relColorA" type="color" class="w-full h-8 rounded-md bg-slate-950 border border-slate-800">
-                </div>
-                <div class="space-y-1">
-                  <div class="text-slate-300">Color B</div>
-                  <input id="relColorB" type="color" class="w-full h-8 rounded-md bg-slate-950 border border-slate-800">
-                </div>
-              </div>
-            </div>
-
-            <div id="relationsList" class="mt-2 max-h-32 overflow-y-auto scrollbar-thin space-y-1"></div>
-          </div>
-        </div>
-
-        <div class="accordion" data-section="schemas" data-order="5" data-pinned="false">
-          <div class="accordion-head">
-            <button class="accordion-toggle" data-target="schemaAccordion">
-              <span>Schemas</span>
-              <span class="accordion-chevron">▾</span>
-            </button>
-            <div class="accordion-actions">
-              <button class="accordion-pin" title="Pin section">📌</button>
-              <button class="accordion-handle" title="Drag (right-click hold) to reorder">⋮⋮</button>
-            </div>
-          </div>
-          <div id="schemaAccordion" class="accordion-body space-y-2">
-            <div class="flex items-center justify-between">
-              <div class="font-semibold text-slate-100">Schemas</div>
-              <button id="addSchemaBtn" class="px-2 py-1 rounded-md bg-slate-900 hover:bg-slate-800 text-[11px]">Add schema</button>
-            </div>
-            <select id="schemaList" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600"></select>
-            <div class="grid grid-cols-2 gap-2 text-[11px]">
-              <div class="space-y-1">
-                <div class="text-slate-300">Name</div>
-                <input id="schemaName" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800">
-              </div>
-              <div class="space-y-1">
-                <div class="text-slate-300">Persian name</div>
-                <input id="schemaFaName" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800">
-              </div>
-              <div class="space-y-1">
-                <div class="text-slate-300">Color A</div>
-                <input id="schemaColorA" type="color" class="w-full h-8 rounded-md bg-slate-950 border border-slate-800">
-              </div>
-              <div class="space-y-1">
-                <div class="text-slate-300">Color B</div>
-                <input id="schemaColorB" type="color" class="w-full h-8 rounded-md bg-slate-950 border border-slate-800">
-              </div>
-            </div>
-            <div class="flex items-center justify-between">
-              <button id="saveSchemaBtn" class="px-3 py-1.5 rounded-md bg-sky-600 hover:bg-sky-500 text-[11px]">Save schema</button>
-              <button id="deleteSchemaBtn" class="px-3 py-1.5 rounded-md border border-red-600 text-red-300 text-[11px] hover:bg-red-950">Delete schema</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </aside>
-  </div>
-</div><script>
 const DataTypes = {
-  mysql:["INT","BIGINT","VARCHAR(255)","TEXT","DATE","DATETIME","BOOLEAN","DECIMAL(10,2)"],
-  postgres:["INTEGER","BIGINT","VARCHAR(255)","TEXT","DATE","TIMESTAMP","BOOLEAN","NUMERIC(10,2)"],
-  sqlite:["INTEGER","REAL","TEXT","BLOB","NUMERIC"],
-  sqlserver:["INT","BIGINT","NVARCHAR(255)","TEXT","DATE","DATETIME2","BIT","DECIMAL(10,2)"]
+  sqlserver:[
+    "bigint","int","smallint","tinyint","bit","decimal","decimal(18,2)","numeric","money","smallmoney","float","real","date","datetime","datetime2","smalldatetime","datetimeoffset","time","char","char(10)","varchar","varchar(255)","varchar(max)","text","nchar","nchar(10)","nvarchar","nvarchar(255)","nvarchar(max)","ntext","binary","varbinary","varbinary(max)","image","rowversion","timestamp","uniqueidentifier","sql_variant","xml","cursor","table","geometry","geography"
+  ],
+  mysql:[
+    "TINYINT","SMALLINT","MEDIUMINT","INT","INTEGER","BIGINT","DECIMAL","DECIMAL(10,2)","NUMERIC","FLOAT","DOUBLE","DOUBLE PRECISION","BIT","BOOL","BOOLEAN","DATE","DATETIME","TIMESTAMP","TIME","YEAR","CHAR","CHAR(10)","VARCHAR","VARCHAR(255)","TINYTEXT","TEXT","MEDIUMTEXT","LONGTEXT","BINARY","VARBINARY","VARBINARY(255)","TINYBLOB","BLOB","MEDIUMBLOB","LONGBLOB","ENUM","SET","GEOMETRY","POINT","LINESTRING","POLYGON","MULTIPOINT","MULTILINESTRING","MULTIPOLYGON","GEOMETRYCOLLECTION","JSON"
+  ],
+  postgres:[
+    "smallint","integer","int","bigint","decimal","decimal(10,2)","numeric","real","double precision","smallserial","serial","bigserial","money","char","character","character(10)","varchar","varchar(255)","character varying","text","bytea","timestamp","timestamp without time zone","timestamp with time zone","timestamptz","date","time","interval","boolean","enum","array","json","jsonb","uuid","xml","int4range","int8range","numrange","tsrange","tstzrange","daterange","point","line","lseg","box","path","polygon","circle","cidr","inet","macaddr","macaddr8","tsvector","tsquery","oid","regclass","pg_lsn"
+  ],
+  sqlite:[
+    "NULL","INTEGER","REAL","TEXT","BLOB","NUMERIC (affinity)","INT","TINYINT","SMALLINT","MEDIUMINT","BIGINT","UNSIGNED BIG INT","INT2","INT8","CHARACTER","VARCHAR","VARCHAR(255)","VARYING CHARACTER","NCHAR","NVARCHAR","CLOB","DOUBLE","DOUBLE PRECISION","FLOAT","BOOLEAN","DATE","DATETIME"
+  ]
+};
+const DbVersions={
+  sqlserver:"2025",
+  mysql:"9.2.0 (Innovation) / 8.4.4 (LTS)",
+  postgres:"17.4",
+  sqlite:"3.51.1"
 };
 function uuid(){if(crypto.randomUUID)return crypto.randomUUID();return"id-"+Math.random().toString(36).slice(2)+Date.now().toString(36)}
 const State={
   dbType:"mysql",
-  dbVersion:"latest",
+  dbVersion:"9.2.0 (Innovation) / 8.4.4 (LTS)",
   dbName:"my_database",
   schemas:[],
   tables:[],
   relations:[],
+  relationDraft:{
+    fromSchemaId:"",
+    fromTableId:"",
+    fromFieldId:"",
+    toSchemaId:"",
+    toTableId:"",
+    toFieldId:"",
+    onDelete:"no_action",
+    labels:{
+      source:{en:"",fa:""},
+      center:{en:"",fa:""},
+      target:{en:"",fa:""}
+    },
+    style:"schema",
+    colorA:"#38bdf8",
+    colorB:"#8b5cf6",
+    bendOffset:0
+  },
   selectedTableIds:new Set(),
   selectedFieldId:null,
   selectedRelationId:null,
@@ -920,7 +52,15 @@ const State={
   offsetX:80,
   offsetY:80,
   panMode:false,
-  displayMode:"en"
+  interactionMode:"move",
+  displayMode:"en",
+  themeMode:"dark",
+  themeColors:{
+    bgA:"#010409",bgB:"#0b1220",
+    headerA:"#020617",headerB:"#0b1327",
+    panelA:"#0a0f1d",panelB:"#0f172a",
+    text:"#e5e7eb",panelBorder:"#0d1117"
+  }
 };
 const Views={
   login:document.getElementById("loginView"),
@@ -943,13 +83,25 @@ const Config={
   sqlFile:document.getElementById("cfgSqlFile"),
   status:document.getElementById("cfgStatus")
 };
+function populateDbVersions(){
+  if(!Config.dbVersion)return;
+  Config.dbVersion.innerHTML="";
+  const v=DbVersions[Config.dbType.value]||"latest";
+  const opt=document.createElement("option");
+  opt.value=v;
+  opt.textContent=v;
+  Config.dbVersion.appendChild(opt);
+}
 const Header={
   dbName:document.getElementById("headerDbName"),
   dbType:document.getElementById("headerDbType"),
   dbVersion:document.getElementById("headerDbVersion"),
   subtitle:document.getElementById("headerSubtitle"),
   displayEnBtn:document.getElementById("displayEnBtn"),
-  displayFaBtn:document.getElementById("displayFaBtn")
+  displayFaBtn:document.getElementById("displayFaBtn"),
+  pinBtn:document.getElementById("headerPinBtn"),
+  container:document.getElementById("mainHeader"),
+  content:document.getElementById("headerContent")
 };
 const LeftPanel={
   jsonArea:document.getElementById("jsonArea"),
@@ -971,7 +123,25 @@ const Canvas={
   panModeBtn:document.getElementById("panModeBtn"),
   zoomIndicator:document.getElementById("zoomIndicator"),
   statusSelection:document.getElementById("statusSelection"),
-  statusZoom:document.getElementById("statusZoom")
+  statusZoom:document.getElementById("statusZoom"),
+  modeSelectBtn:document.getElementById("modeSelectBtn"),
+  modeMoveBtn:document.getElementById("modeMoveBtn"),
+  modePanBtn:document.getElementById("modePanBtn")
+};
+const Appearance={
+  colorBgA:document.getElementById("colorBgA"),
+  colorBgB:document.getElementById("colorBgB"),
+  colorHeaderA:document.getElementById("colorHeaderA"),
+  colorHeaderB:document.getElementById("colorHeaderB"),
+  colorPanelA:document.getElementById("colorPanelA"),
+  colorPanelB:document.getElementById("colorPanelB"),
+  colorText:document.getElementById("colorText"),
+  applyBtn:document.getElementById("applyThemeBtn"),
+  resetBtn:document.getElementById("resetThemeBtn"),
+  themeDarkBtn:document.getElementById("themeDarkBtn"),
+  themeLightBtn:document.getElementById("themeLightBtn"),
+  autoSortBtn:document.getElementById("autoSortBtn"),
+  editDbNameBtn:document.getElementById("editDbNameBtn")
 };
 const RightPanel={
   tableSelect:document.getElementById("tableSelect"),
@@ -986,6 +156,7 @@ const RightPanel={
   fldName:document.getElementById("fldName"),
   fldFaName:document.getElementById("fldFaName"),
   fldType:document.getElementById("fldType"),
+  fldTypeParams:document.getElementById("fldTypeParams"),
   fldNullable:document.getElementById("fldNullable"),
   fldPrimary:document.getElementById("fldPrimary"),
   fldDescription:document.getElementById("fldDescription"),
@@ -993,18 +164,24 @@ const RightPanel={
   moveFieldUp:document.getElementById("moveFieldUp"),
   moveFieldDown:document.getElementById("moveFieldDown"),
   relFromTable:document.getElementById("relFromTable"),
+  relFromSchema:document.getElementById("relFromSchema"),
   relFromField:document.getElementById("relFromField"),
+  relToSchema:document.getElementById("relToSchema"),
   relToTable:document.getElementById("relToTable"),
   relToField:document.getElementById("relToField"),
   relOnDelete:document.getElementById("relOnDelete"),
   addRelationBtn:document.getElementById("addRelationBtn"),
   relationsList:document.getElementById("relationsList"),
   relSourceLabel:document.getElementById("relSourceLabel"),
+  relSourceLabelFa:document.getElementById("relSourceLabelFa"),
   relCenterLabel:document.getElementById("relCenterLabel"),
+  relCenterLabelFa:document.getElementById("relCenterLabelFa"),
   relTargetLabel:document.getElementById("relTargetLabel"),
+  relTargetLabelFa:document.getElementById("relTargetLabelFa"),
   relStyle:document.getElementById("relStyle"),
   relColorA:document.getElementById("relColorA"),
   relColorB:document.getElementById("relColorB"),
+  relBend:document.getElementById("relBend"),
   schemaList:document.getElementById("schemaList"),
   addSchemaBtn:document.getElementById("addSchemaBtn"),
   saveSchemaBtn:document.getElementById("saveSchemaBtn"),
@@ -1012,13 +189,15 @@ const RightPanel={
   schemaName:document.getElementById("schemaName"),
   schemaFaName:document.getElementById("schemaFaName"),
   schemaColorA:document.getElementById("schemaColorA"),
-  schemaColorB:document.getElementById("schemaColorB")
+  schemaColorB:document.getElementById("schemaColorB"),
+  schemaBorderColorA:document.getElementById("schemaBorderColorA"),
+  schemaBorderColorB:document.getElementById("schemaBorderColorB")
 };
 const Controls={logoutBtn:document.getElementById("logoutBtn")};
 const PanelUI={
   side:document.getElementById("sidePanel"),
   scroll:document.getElementById("sidePanelScroll"),
-  toggleBtn:document.getElementById("collapsePanelBtn"),
+  toggleBtn:document.getElementById("panelToggleHeader"),
   accordions:Array.from(document.querySelectorAll(".accordion-toggle")),
   sections:Array.from(document.querySelectorAll(".accordion")).map(el=>({
     element:el,
@@ -1028,6 +207,56 @@ const PanelUI={
     handle:el.querySelector(".accordion-handle")
   }))
 };
+const OptionUI={
+  panel:document.getElementById("optionPanel"),
+  toggleBtn:document.getElementById("optionToggleBtn"),
+  zoomInBtn:document.getElementById("optionZoomIn"),
+  zoomOutBtn:document.getElementById("optionZoomOut"),
+  zoomResetBtn:document.getElementById("optionZoomReset"),
+  selectBtn:document.getElementById("optionSelectBtn"),
+  moveBtn:document.getElementById("optionMoveBtn"),
+  panBtn:document.getElementById("optionPanBtn"),
+  handle:document.querySelector(".option-panel-handle")
+};
+let optionPanelInitialized=false;
+function clampWithinParent(el,x,y,pad=0){
+  const parent=el?.offsetParent||document.body;
+  const maxX=(parent?.clientWidth||window.innerWidth)-el.offsetWidth-pad;
+  const maxY=(parent?.clientHeight||window.innerHeight)-el.offsetHeight-pad;
+  return{
+    x:Math.max(pad,Math.min(Math.max(pad,maxX),x)),
+    y:Math.max(pad,Math.min(Math.max(pad,maxY),y))
+  };
+}
+function applyThemeColors(){
+  const c=State.themeColors;
+  const root=document.documentElement.style;
+  const body=document.body?.style;
+  const setVar=(k,v)=>{root.setProperty(k,v);if(body)body.setProperty(k,v)};
+  const panelBorder=c.panelBorder||c.panelA;
+  const accent=c.accent||"#0ea5e9";
+  const accentText=State.themeMode==="light"?"#0b1120":c.text;
+  const accentShadow="rgba(14,165,233,0.45)";
+  setVar("--bg-main","linear-gradient(135deg,"+c.bgA+","+c.bgB+")");
+  setVar("--header-bg","linear-gradient(135deg,"+c.headerA+","+c.headerB+")");
+  setVar("--panel-bg","linear-gradient(135deg,"+c.panelA+","+c.panelB+")");
+  setVar("--panel-border",panelBorder);
+  setVar("--text-main",c.text);
+  setVar("--btn-bg",c.panelA);
+  setVar("--btn-border",panelBorder);
+  setVar("--btn-bg-active",accent);
+  setVar("--btn-text",c.text);
+  setVar("--btn-text-active",accentText);
+  setVar("--toggle-bg",c.panelA);
+  setVar("--toggle-border",panelBorder);
+  setVar("--toggle-text",c.text);
+  setVar("--toggle-active-bg",accent);
+  setVar("--toggle-active-border",accent);
+  setVar("--toggle-active-text",accentText);
+  setVar("--toggle-active-shadow",accentShadow);
+  setVar("--input-bg",c.panelA);
+  setVar("--input-border",panelBorder);
+}
 function showView(name){
   Views.login.classList.add("hidden");
   Views.config.classList.add("hidden");
@@ -1036,19 +265,102 @@ function showView(name){
   if(name==="config")Views.config.classList.remove("hidden");
   if(name==="main")Views.main.classList.remove("hidden");
 }
-function loginSubmit(){
+populateDbVersions();
+Config.dbType.addEventListener("change",()=>{
+  populateDbVersions();
+  State.dbVersion=Config.dbVersion.value||DbVersions[Config.dbType.value]||"latest";
+});
+applyThemeColors();
+loadThemeControls();
+setDisplayMode(State.displayMode||"en",{silent:true});
+setThemeMode(State.themeMode||"dark");
+syncThemeToggleUI();
+function setDisplayMode(mode,{silent}={}){
+  const next=mode==="fa"?"fa":"en";
+  State.displayMode=next;
+  const isEn=next==="en";
+  Header.displayEnBtn?.classList.toggle("toggle-active",isEn);
+  Header.displayFaBtn?.classList.toggle("toggle-active",!isEn);
+  Header.displayEnBtn?.setAttribute("aria-pressed",isEn?"true":"false");
+  Header.displayFaBtn?.setAttribute("aria-pressed",!isEn?"true":"false");
+  if(!silent)updateAllUI();
+}
+function initSidePanelDrag(){
+  const header=document.querySelector(".side-panel-header");
+  if(!PanelUI.side||!header)return;
+  let drag=null;
+  header.addEventListener("mousedown",e=>{
+    if(e.button!==0)return;
+    const rect=PanelUI.side.getBoundingClientRect();
+    drag={
+      offsetX:e.clientX-rect.left,
+      offsetY:e.clientY-rect.top,
+      parentRect:(PanelUI.side.offsetParent||document.body).getBoundingClientRect()
+    };
+    PanelUI.side.style.right="";
+    PanelUI.side.style.bottom="";
+    document.addEventListener("mousemove",onDrag);
+    document.addEventListener("mouseup",stopDrag);
+  });
+  function onDrag(e){
+    if(!drag)return;
+    const parentRect=drag.parentRect||(PanelUI.side.offsetParent||document.body).getBoundingClientRect();
+    const nextX=e.clientX-drag.offsetX-parentRect.left;
+    const nextY=e.clientY-drag.offsetY-parentRect.top;
+    const clamped=clampWithinParent(PanelUI.side,nextX,nextY,0);
+    PanelUI.side.style.left=clamped.x+"px";
+    PanelUI.side.style.top=clamped.y+"px";
+  }
+  function stopDrag(){
+    drag=null;
+    document.removeEventListener("mousemove",onDrag);
+    document.removeEventListener("mouseup",stopDrag);
+  }
+}
+function setHeaderPinned(pinned){
+  if(!Header.container||!Header.pinBtn)return;
+  const isPinned=!!pinned;
+  Header.container.classList.toggle("header-hidden",!isPinned);
+  Header.pinBtn.classList.toggle("active",isPinned);
+  Header.pinBtn.setAttribute("aria-pressed",isPinned?"true":"false");
+  if(Views.main){
+    Views.main.classList.toggle("header-unpinned",!isPinned);
+  }
+}
+setHeaderPinned(true);
+if(Header.pinBtn){
+  Header.pinBtn.addEventListener("click",()=>{
+    const currentlyPinned=!Header.container.classList.contains("header-hidden");
+    setHeaderPinned(!currentlyPinned);
+  });
+}
+function loginSubmit(e){
+  if(e&&e.preventDefault)e.preventDefault();
   const u=Login.user.value.trim();
   const p=Login.pass.value.trim();
-  if(u==="admin"&&p==="admin"){Login.error.textContent="";showView("config")}else{Login.error.textContent="Invalid username or password."}
+  if(u==="admin"&&p==="admin"){
+    Login.error.textContent="";
+    showView("config");
+  }else{
+    Login.error.textContent="Invalid username or password.";
+  }
 }
-Login.btn.addEventListener("click",loginSubmit);
-Login.pass.addEventListener("keydown",e=>{if(e.key==="Enter")loginSubmit()});
+function safeLogin(e){
+  try{
+    loginSubmit(e);
+  }catch(err){
+    console.error(err);
+    if(Login.error)Login.error.textContent="???? ?????????: "+(err.message||err);
+  }
+}
+Login.btn.addEventListener("click",e=>safeLogin(e));
+Login.pass.addEventListener("keydown",e=>{if(e.key==="Enter")safeLogin(e)});
 Config.back.addEventListener("click",()=>showView("login"));
 Config.cont.addEventListener("click",()=>{
   Config.status.textContent="Preparing designer...";
   State.dbName=Config.dbName.value.trim()||"my_database";
   State.dbType=Config.dbType.value;
-  State.dbVersion=Config.dbVersion.value;
+  State.dbVersion=Config.dbVersion.value||DbVersions[State.dbType]||"latest";
   const jf=Config.jsonFile.files[0];
   const sf=Config.sqlFile.files[0];
   if(jf){
@@ -1075,6 +387,7 @@ function finalizeMain(){
   syncSchemaSelects();
   updateFieldTypeOptions();
   updateAllUI();
+  initOptionPanel();
   showView("main");
   Config.status.textContent=""
 }
@@ -1085,8 +398,8 @@ function setDbMeta(){
   if(State.dbType==="sqlite")t="SQLite";
   if(State.dbType==="sqlserver")t="SQL Server";
   Header.dbType.textContent=t;
-  Header.dbVersion.textContent=State.dbVersion==="latest"?"latest":State.dbVersion;
-  Header.subtitle.textContent=t+" Â· "+State.dbName
+  Header.dbVersion.textContent=State.dbVersion==="latest"?DbVersions[State.dbType]||"latest":State.dbVersion;
+  if(Header.subtitle)Header.subtitle.textContent=t+" - "+State.dbName
 }
 Controls.logoutBtn.addEventListener("click",()=>{
   State.tables=[];
@@ -1107,24 +420,124 @@ Controls.logoutBtn.addEventListener("click",()=>{
   showView("login")
 });
 Header.displayEnBtn.addEventListener("click",()=>{
-  State.displayMode="en";
-  Header.displayEnBtn.classList.add("bg-sky-600","text-slate-50");
-  Header.displayFaBtn.classList.remove("bg-sky-600","text-slate-50");
-  updateAllUI()
+  setDisplayMode("en");
 });
 Header.displayFaBtn.addEventListener("click",()=>{
-  State.displayMode="fa";
-  Header.displayFaBtn.classList.add("bg-sky-600","text-slate-50");
-  Header.displayEnBtn.classList.remove("bg-sky-600","text-slate-50");
-  updateAllUI()
+  setDisplayMode("fa");
 });
-Canvas.zoomInBtn.addEventListener("click",()=>setZoom(State.zoom+0.1));
-Canvas.zoomOutBtn.addEventListener("click",()=>setZoom(State.zoom-0.1));
-Canvas.zoomResetBtn.addEventListener("click",()=>setZoom(1));
-Canvas.panModeBtn.addEventListener("click",()=>{
-  State.panMode=!State.panMode;
-  Canvas.panModeBtn.classList.toggle("bg-sky-600",State.panMode);
-  Canvas.panModeBtn.classList.toggle("border-sky-500",State.panMode)
+function setThemeMode(mode){
+  const next=mode==="light"?"light":"dark";
+  const isLight=next==="light";
+  State.themeMode=next;
+  if(isLight){
+    State.themeColors={bgA:"#f4f7fb",bgB:"#e8edf4",headerA:"#f8fafc",headerB:"#e2e8f0",panelA:"#ffffff",panelB:"#f1f5f9",text:"#0f172a",panelBorder:"#cbd5e1"};
+  }else{
+    State.themeColors={bgA:"#010409",bgB:"#0b1220",headerA:"#020617",headerB:"#0b1327",panelA:"#0a0f1d",panelB:"#0f172a",text:"#e5e7eb",panelBorder:"#0d1117"};
+  }
+  applyThemeColors();
+  loadThemeControls();
+  syncThemeToggleUI();
+  updateAllUI();
+  document.body.classList.toggle("theme-light",isLight);
+  document.body.classList.toggle("theme-dark",!isLight);
+}
+function syncThemeToggleUI(){
+  const isLight=State.themeMode==="light";
+  const darkBtn=Appearance.themeDarkBtn;
+  const lightBtn=Appearance.themeLightBtn;
+  if(darkBtn&&lightBtn){
+    darkBtn.classList.remove("toggle-active","toggle-inactive");
+    lightBtn.classList.remove("toggle-active","toggle-inactive");
+    darkBtn.classList.toggle("toggle-active",!isLight);
+    lightBtn.classList.toggle("toggle-active",isLight);
+    darkBtn.classList.toggle("toggle-inactive",isLight);
+    lightBtn.classList.toggle("toggle-inactive",!isLight);
+    darkBtn.setAttribute("aria-pressed",!isLight?"true":"false");
+    lightBtn.setAttribute("aria-pressed",isLight?"true":"false");
+  }
+}
+function loadThemeControls(){
+  if(!Appearance.colorBgA)return;
+  const c=State.themeColors;
+  Appearance.colorBgA.value=c.bgA;
+  Appearance.colorBgB.value=c.bgB;
+  Appearance.colorHeaderA.value=c.headerA;
+  Appearance.colorHeaderB.value=c.headerB;
+  Appearance.colorPanelA.value=c.panelA;
+  Appearance.colorPanelB.value=c.panelB;
+  Appearance.colorText.value=c.text;
+}
+function applyCustomThemeFromControls(){
+  State.themeColors={
+    bgA:Appearance.colorBgA.value||State.themeColors.bgA,
+    bgB:Appearance.colorBgB.value||State.themeColors.bgB,
+    headerA:Appearance.colorHeaderA.value||State.themeColors.headerA,
+    headerB:Appearance.colorHeaderB.value||State.themeColors.headerB,
+    panelA:Appearance.colorPanelA.value||State.themeColors.panelA,
+    panelB:Appearance.colorPanelB.value||State.themeColors.panelB,
+    text:Appearance.colorText.value||State.themeColors.text,
+    panelBorder:Appearance.colorPanelA.value||State.themeColors.panelA
+  };
+  applyThemeColors();
+  updateAllUI();
+}
+if(Appearance.applyBtn)Appearance.applyBtn.addEventListener("click",applyCustomThemeFromControls);
+if(Appearance.resetBtn)Appearance.resetBtn.addEventListener("click",()=>setThemeMode(State.themeMode));
+if(Appearance.themeDarkBtn)Appearance.themeDarkBtn.addEventListener("click",()=>setThemeMode("dark"));
+if(Appearance.themeLightBtn)Appearance.themeLightBtn.addEventListener("click",()=>setThemeMode("light"));
+if(Appearance.autoSortBtn)Appearance.autoSortBtn.addEventListener("click",autoSortTables);
+if(Appearance.editDbNameBtn)Appearance.editDbNameBtn.addEventListener("click",()=>{
+  const name=prompt("Database name",State.dbName);
+  if(!name)return;
+  State.dbName=name.trim()||State.dbName;
+  setDbMeta();
+  updateJsonArea();
+});
+function zoomStep(){
+  return State.zoom<0.1?0.01:0.1
+}
+function bumpZoom(dir){
+  const step=zoomStep();
+  const delta=dir==="in"?step:-step;
+  setZoom(State.zoom+delta)
+}
+if(Canvas.zoomInBtn)Canvas.zoomInBtn.addEventListener("click",()=>bumpZoom("in"));
+if(Canvas.zoomOutBtn)Canvas.zoomOutBtn.addEventListener("click",()=>bumpZoom("out"));
+if(Canvas.zoomResetBtn)Canvas.zoomResetBtn.addEventListener("click",()=>setZoom(1));
+if(OptionUI.zoomInBtn)OptionUI.zoomInBtn.addEventListener("click",()=>bumpZoom("in"));
+if(OptionUI.zoomOutBtn)OptionUI.zoomOutBtn.addEventListener("click",()=>bumpZoom("out"));
+if(OptionUI.zoomResetBtn)OptionUI.zoomResetBtn.addEventListener("click",()=>setZoom(1));
+function setMode(mode){
+  State.interactionMode=mode;
+  const bindings=[
+    {btn:Canvas.modeSelectBtn,mode:"select"},
+    {btn:Canvas.modeMoveBtn,mode:"move"},
+    {btn:Canvas.modePanBtn,mode:"pan"},
+    {btn:OptionUI.selectBtn,mode:"select"},
+    {btn:OptionUI.moveBtn,mode:"move"},
+    {btn:OptionUI.panBtn,mode:"pan"}
+  ];
+  bindings.forEach(entry=>{
+    if(entry.btn)entry.btn.classList.toggle("active",mode===entry.mode)
+  });
+  State.panMode=mode==="pan";
+  if(Canvas.panModeBtn){
+    Canvas.panModeBtn.classList.toggle("active",State.panMode);
+    Canvas.panModeBtn.classList.toggle("bg-sky-600",State.panMode);
+    Canvas.panModeBtn.classList.toggle("border-sky-500",State.panMode);
+  }
+  Canvas.pan.style.cursor=mode==="pan"?"grab":"default";
+}
+if(Canvas.modeSelectBtn)Canvas.modeSelectBtn.addEventListener("click",()=>setMode("select"));
+if(Canvas.modeMoveBtn)Canvas.modeMoveBtn.addEventListener("click",()=>setMode("move"));
+if(Canvas.modePanBtn)Canvas.modePanBtn.addEventListener("click",()=>setMode("pan"));
+if(OptionUI.selectBtn)OptionUI.selectBtn.addEventListener("click",()=>setMode("select"));
+if(OptionUI.moveBtn)OptionUI.moveBtn.addEventListener("click",()=>setMode("move"));
+if(OptionUI.panBtn)OptionUI.panBtn.addEventListener("click",()=>setMode("pan"));
+if(Canvas.panModeBtn)Canvas.panModeBtn.addEventListener("click",()=>{
+  const next=!State.panMode;
+  if(next)setMode("pan"); else if(State.interactionMode==="pan")setMode("move");
+  State.panMode=next;
 });
 Canvas.zoomIndicator.textContent="100%";
 Canvas.statusZoom.textContent="100%";
@@ -1205,23 +618,112 @@ function endSectionDrag(){
   document.removeEventListener("mouseup",endSectionDrag);
   sectionDragState=null
 }
-PanelUI.sections.forEach(sec=>{
-  if(sec.toggle&&sec.toggle.dataset.target){
-    sec.body=document.getElementById(sec.toggle.dataset.target)
-  }
-  if(sec.pinBtn)sec.pinBtn.addEventListener("click",()=>toggleSectionPin(sec));
-  if(sec.handle){
-    sec.handle.addEventListener("contextmenu",e=>e.preventDefault());
-    sec.handle.addEventListener("mousedown",e=>{if(e.button!==2)return;startSectionDrag(sec,e)})
-  }
-});
-syncSectionLayout();
+try{
+  PanelUI.sections.forEach(sec=>{
+    if(sec.toggle&&sec.toggle.dataset.target){
+      sec.body=document.getElementById(sec.toggle.dataset.target)
+    }
+    if(sec.pinBtn)sec.pinBtn.addEventListener("click",()=>toggleSectionPin(sec));
+    if(sec.handle){
+      sec.handle.addEventListener("contextmenu",e=>e.preventDefault());
+      sec.handle.addEventListener("mousedown",e=>{if(e.button!==0&&e.button!==2)return;startSectionDrag(sec,e)})
+    }
+  });
+  syncSectionLayout();
+  setPanelVisible(true);
+  initSidePanelDrag();
+}catch(err){
+  console.error("Side panel init failed",err);
+}
 
+function setPanelVisible(show){
+  if(!PanelUI.side)return;
+  PanelUI.side.classList.toggle("hidden",!show);
+  if(PanelUI.toggleBtn){
+    PanelUI.toggleBtn.classList.toggle("active",show);
+    PanelUI.toggleBtn.classList.toggle("toggle-active",show);
+    PanelUI.toggleBtn.setAttribute("aria-pressed",show?"true":"false");
+  }
+}
 if(PanelUI.toggleBtn&&PanelUI.side){
   PanelUI.toggleBtn.addEventListener("click",()=>{
-    const collapsed=PanelUI.side.classList.toggle("collapsed");
-    PanelUI.toggleBtn.textContent=collapsed?"⟩":"⟨"
-  })
+    const hidden=PanelUI.side.classList.toggle("hidden");
+    PanelUI.toggleBtn.classList.toggle("active",!hidden);
+    PanelUI.toggleBtn.classList.toggle("toggle-active",!hidden);
+    PanelUI.toggleBtn.setAttribute("aria-pressed",!hidden?"true":"false");
+  });
+  PanelUI.toggleBtn.classList.add("panel-toggle-header");
+}
+function setOptionPanelVisible(show){
+  if(!OptionUI.panel)return;
+  OptionUI.panel.classList.toggle("hidden",!show);
+  if(OptionUI.toggleBtn){
+    OptionUI.toggleBtn.classList.toggle("active",show);
+    OptionUI.toggleBtn.classList.toggle("toggle-active",show);
+    OptionUI.toggleBtn.setAttribute("aria-pressed",show?"true":"false");
+  }
+}
+if(OptionUI.toggleBtn&&OptionUI.panel){
+  OptionUI.toggleBtn.addEventListener("click",()=>{
+    const hidden=OptionUI.panel.classList.toggle("hidden");
+    OptionUI.toggleBtn.classList.toggle("active",!hidden);
+    OptionUI.toggleBtn.classList.toggle("toggle-active",!hidden);
+    OptionUI.toggleBtn.setAttribute("aria-pressed",!hidden?"true":"false");
+  });
+}
+function initOptionPanel(){
+  if(optionPanelInitialized)return;
+  optionPanelInitialized=true;
+  try{
+    setOptionPanelVisible(true);
+    initOptionPanelDrag();
+  }catch(err){
+    console.error("Option panel init failed",err);
+  }
+}
+function initOptionPanelDrag(){
+  if(!OptionUI.panel||!OptionUI.handle)return;
+  let drag=null;
+  OptionUI.panel.style.right="";
+  OptionUI.panel.style.bottom="";
+  const parent=OptionUI.panel.offsetParent||document.body;
+  const startX=12;
+  const startY=Math.max(0,((parent.clientHeight||window.innerHeight)-OptionUI.panel.offsetHeight)/2);
+  const initial=clampWithinParent(OptionUI.panel,startX,startY,0);
+  OptionUI.panel.style.left=initial.x+"px";
+  OptionUI.panel.style.top=initial.y+"px";
+  OptionUI.panel.style.transform="";
+  function startDrag(e){
+    OptionUI.panel.style.transform="";
+    drag={
+      startX:e.clientX,
+      startY:e.clientY,
+      origX:OptionUI.panel.offsetLeft,
+      origY:OptionUI.panel.offsetTop
+    };
+    document.addEventListener("mousemove",onDrag);
+    document.addEventListener("mouseup",endDrag);
+  }
+  OptionUI.handle.addEventListener("mousedown",e=>startDrag(e));
+  OptionUI.panel.addEventListener("mousedown",e=>{
+    if(e.target.closest("button"))return;
+    startDrag(e);
+  });
+  function onDrag(e){
+    if(!drag)return;
+    const dx=e.clientX-drag.startX;
+    const dy=e.clientY-drag.startY;
+    let nextX=drag.origX+dx;
+    let nextY=drag.origY+dy;
+    const clamped=clampWithinParent(OptionUI.panel,nextX,nextY,0);
+    OptionUI.panel.style.left=clamped.x+"px";
+    OptionUI.panel.style.top=clamped.y+"px";
+  }
+  function endDrag(){
+    drag=null;
+    document.removeEventListener("mousemove",onDrag);
+    document.removeEventListener("mouseup",endDrag);
+  }
 }
 PanelUI.accordions.forEach(btn=>{
   const targetId=btn.dataset.target;
@@ -1232,16 +734,16 @@ PanelUI.accordions.forEach(btn=>{
     btn.classList.toggle("collapsed",collapsed);
   })
 });
-Canvas.pan.addEventListener("wheel",e=>{
+if(Canvas.pan)Canvas.pan.addEventListener("wheel",e=>{
   if(e.ctrlKey||e.metaKey){
     e.preventDefault();
-    const delta=e.deltaY<0?0.1:-0.1;
+    const delta=e.deltaY<0?zoomStep():-zoomStep();
     setZoom(State.zoom+delta)
   }
 },{passive:false});
 function setZoom(z){
-  if(z<0.4)z=0.4;
-  if(z>2.5)z=2.5;
+  if(z<0.01)z=0.01;
+  if(z>10)z=10;
   State.zoom=z;
   applyTransform();
   const label=Math.round(z*100)+"%";
@@ -1249,10 +751,10 @@ function setZoom(z){
   Canvas.statusZoom.textContent=label
 }
 let panDrag=null;
-Canvas.pan.addEventListener("mousedown",e=>{
+if(Canvas.pan)Canvas.pan.addEventListener("mousedown",e=>{
   const target=e.target;
   if(target.closest(".table-node")||target.closest("svg"))return;
-  if(State.panMode){
+  if(State.interactionMode==="pan"||State.panMode){
     panDrag={startX:e.clientX,startY:e.clientY,origX:State.offsetX,origY:State.offsetY};
     Canvas.pan.style.cursor="grabbing";
     document.addEventListener("mousemove",onPanMove);
@@ -1283,11 +785,53 @@ function applyTransform(){
   Canvas.relationLayer.style.transform="translate("+State.offsetX+"px,"+State.offsetY+"px) scale("+State.zoom+")";
   Canvas.relationLayer.style.transformOrigin="0 0"
 }
-function defaultSchema(){
-  return{id:uuid(),name:"public",faName:"Ø§Ø³Ú©ÛŒÙ…Ø§ÛŒ Ù¾ÛŒØ´â€ŒÙØ±Ø¶",colorA:"#38bdf8",colorB:"#8b5cf6"}
+function autoSortTables(){
+  const gapX=260;
+  const gapY=220;
+  State.tables.forEach((t,idx)=>{
+    const row=Math.floor(idx/3);
+    const col=idx%3;
+    t.x=120+col*gapX;
+    t.y=120+row*gapY;
+  });
+  updateAllUI();
+}
+function defaultSchemaName(dbType){
+  if(dbType==="sqlserver")return{name:"dbo",faName:"??????"};
+  if(dbType==="sqlite")return{name:"main",faName:"????"};
+  return{name:"public",faName:"?????"};
+}
+function defaultSchema(dbType){
+  const meta=defaultSchemaName(dbType||State.dbType||"mysql");
+  return{
+    id:uuid(),
+    name:meta.name,
+    faName:meta.faName,
+    colorA:"#38bdf8",
+    colorB:"#8b5cf6",
+    borderColor:"#22d3ee",
+    borderColorA:"#22d3ee",
+    borderColorB:"#0ea5e9"
+  }
 }
 function ensureSchemas(){
   if(!State.schemas.length)State.schemas.push(defaultSchema())
+}
+function normalizeSchemas(){
+  State.schemas.forEach(s=>{
+    if(!s.colorA)s.colorA="#38bdf8";
+    if(!s.colorB)s.colorB="#8b5cf6";
+    if(!s.borderColor)s.borderColor=s.colorA||"#22d3ee";
+    if(!s.borderColorA)s.borderColorA=s.borderColor||s.colorA||"#22d3ee";
+    if(!s.borderColorB)s.borderColorB=s.borderColor||s.colorB||"#0ea5e9"
+  })
+}
+function reassignTablesToExistingSchema(){
+  if(!State.schemas.length)return;
+  const fallbackId=State.schemas[0].id;
+  State.tables.forEach(t=>{
+    if(!getSchemaById(t.schemaId))t.schemaId=fallbackId
+  })
 }
 function createTable(name,schemaId,x,y){
   return{
@@ -1327,8 +871,14 @@ function createRelation(fromTableId,fromFieldId,toTableId,toFieldId,onDelete){
     colorA:"#38bdf8",
     colorB:"#8b5cf6",
     sourceLabel:"",
+    sourceLabelFa:"",
     centerLabel:"",
-    targetLabel:""
+    centerLabelFa:"",
+    targetLabel:"",
+    targetLabelFa:"",
+    bendOffset:0,
+    ctrlX:null,
+    ctrlY:null
   }
 }
 function getTableById(id){return State.tables.find(t=>t.id===id)||null}
@@ -1340,10 +890,12 @@ function schemaGradient(schema){
 }
 function schemaMainColor(schema){
   if(!schema)return"#1f2937";
-  return schema.colorA||"#38bdf8"
+  return schema.borderColorA||schema.borderColor||schema.colorA||"#38bdf8"
 }
 function updateAllUI(){
   ensureSchemas();
+  normalizeSchemas();
+  reassignTablesToExistingSchema();
   renderCanvas();
   updateSelectionStatus();
   updateTableSelect();
@@ -1368,14 +920,24 @@ function renderTableNode(t){
   node.className="table-node border";
   node.style.left=t.x+"px";
   node.style.top=t.y+"px";
+  const baseWidth=t.tableWidth||260;
+  const autoHeight=90+Math.max(t.fields.length*24,60);
+  const nodeHeight=Math.max(t.tableHeight||0,autoHeight);
+  node.style.width=baseWidth+"px";
+  node.style.height=nodeHeight+"px";
   const selected=State.selectedTableIds.has(t.id);
   const borderColor=selected?"#fb923c":schemaMainColor(schema);
-  node.style.borderColor=borderColor;
+  if(schema && !selected){
+    node.style.borderImage="linear-gradient(135deg,"+(schema.borderColorA||schema.colorA)+","+(schema.borderColorB||schema.colorB)+") 1";
+  }else{
+    node.style.borderImage="";
+    node.style.borderColor=borderColor;
+  }
   node.style.boxShadow=selected?"0 0 0 1px #fb923c,0 18px 40px rgba(0,0,0,0.95)":"0 18px 40px rgba(0,0,0,0.85)";
   const header=document.createElement("div");
   header.className="table-header";
   const title=document.createElement("div");
-  title.className="table-title"+(isFa?" rtl":"");
+  title.className="table-title";
   title.textContent=isFa&&(t.faName||"")?t.faName:t.name;
   const cap=document.createElement("div");
   cap.className="table-caption";
@@ -1385,10 +947,11 @@ function renderTableNode(t){
   header.appendChild(title);
   header.appendChild(cap);
   const desc=document.createElement("div");
-  desc.className="table-desc"+(isFa?" rtl":"");
+  desc.className="table-desc";
   desc.textContent=t.description||"";
   const fieldsWrap=document.createElement("div");
-  fieldsWrap.className="table-fields scrollbar-thin"+(isFa?" rtl":"");
+  fieldsWrap.className="table-fields scrollbar-thin";
+  fieldsWrap.style.maxHeight="none";
   const fields=[...t.fields].sort((a,b)=>Number(b.pinned)-Number(a.pinned));
   fields.forEach(f=>{
     const row=document.createElement("div");
@@ -1397,7 +960,7 @@ function renderTableNode(t){
     left.className="flex items-center gap-1";
     if(f.pinned){
       const pin=document.createElement("span");
-      pin.textContent="📌";
+      pin.textContent="???";
       pin.className="text-[10px]";
       left.appendChild(pin);
     }
@@ -1433,6 +996,10 @@ function renderTableNode(t){
   node.appendChild(header);
   if(t.description)node.appendChild(desc);
   node.appendChild(fieldsWrap);
+  const resize=document.createElement("div");
+  resize.className="table-resize";
+  resize.addEventListener("mousedown",e=>startResizeTable(t,e));
+  node.appendChild(resize);
   node.addEventListener("mousedown",e=>{
     if(e.target.closest(".table-field-row"))return;
     e.preventDefault();
@@ -1448,12 +1015,37 @@ function renderTableNode(t){
   });
   Canvas.inner.appendChild(node)
 }
+function getTableSize(t){
+  const baseWidth=t.tableWidth||260;
+  const autoHeight=90+Math.max(t.fields.length*24,60);
+  const height=Math.max(t.tableHeight||0,autoHeight);
+  return{width:baseWidth,height};
+}
+function clampTableToView(t){
+  if(!Canvas.pan)return;
+  const rect=Canvas.pan.getBoundingClientRect();
+  const pad=0;
+  const size=getTableSize(t);
+  const minX=(pad/State.zoom)-State.offsetX;
+  const minY=(pad/State.zoom)-State.offsetY;
+  const maxX=(rect.width-pad)/State.zoom-State.offsetX-size.width;
+  const maxY=(rect.height-pad)/State.zoom-State.offsetY-size.height;
+  t.x=Math.min(Math.max(t.x,minX),Math.max(minX,maxX));
+  t.y=Math.min(Math.max(t.y,minY),Math.max(minY,maxY));
+}
 let dragTableState=null;
+let resizeState=null;
 function startDragTable(t,e){
-  if(State.panMode)return;
+  if(State.interactionMode!=="move")return;
   dragTableState={id:t.id,startX:e.clientX,startY:e.clientY,origX:t.x,origY:t.y};
   document.addEventListener("mousemove",onTableDragMove);
   document.addEventListener("mouseup",onTableDragEnd)
+}
+function startResizeTable(t,e){
+  e.stopPropagation();
+  resizeState={id:t.id,startX:e.clientX,startY:e.clientY,origW:t.tableWidth||260,origH:t.tableHeight||0};
+  document.addEventListener("mousemove",onTableResizeMove);
+  document.addEventListener("mouseup",endTableResize);
 }
 function onTableDragMove(e){
   if(!dragTableState)return;
@@ -1463,6 +1055,7 @@ function onTableDragMove(e){
   const dy=(e.clientY-dragTableState.startY)/State.zoom;
   t.x=dragTableState.origX+dx;
   t.y=dragTableState.origY+dy;
+  clampTableToView(t);
   renderCanvas()
 }
 function onTableDragEnd(){
@@ -1470,10 +1063,37 @@ function onTableDragEnd(){
   document.removeEventListener("mousemove",onTableDragMove);
   document.removeEventListener("mouseup",onTableDragEnd)
 }
+function onTableResizeMove(e){
+  if(!resizeState)return;
+  const t=getTableById(resizeState.id);
+  if(!t)return;
+  const dx=(e.clientX-resizeState.startX)/State.zoom;
+  const dy=(e.clientY-resizeState.startY)/State.zoom;
+  t.tableWidth=Math.max(200,resizeState.origW+dx);
+  t.tableHeight=Math.max(160,resizeState.origH+dy);
+  renderCanvas();
+}
+function endTableResize(){
+  resizeState=null;
+  document.removeEventListener("mousemove",onTableResizeMove);
+  document.removeEventListener("mouseup",endTableResize);
+}
 function renderRelations(){
   const layer=Canvas.relationLayer;
   layer.innerHTML="";
   const defs=document.createElementNS("http://www.w3.org/2000/svg","defs");
+  const marker=document.createElementNS("http://www.w3.org/2000/svg","marker");
+  marker.setAttribute("id","arrow-head");
+  marker.setAttribute("markerWidth","6");
+  marker.setAttribute("markerHeight","6");
+  marker.setAttribute("refX","5");
+  marker.setAttribute("refY","3");
+  marker.setAttribute("orient","auto");
+  const markerPath=document.createElementNS("http://www.w3.org/2000/svg","path");
+  markerPath.setAttribute("d","M0,0 L6,3 L0,6 Z");
+  markerPath.setAttribute("fill","#38bdf8");
+  marker.appendChild(markerPath);
+  defs.appendChild(marker);
   layer.appendChild(defs);
   State.relations.forEach(rel=>{
     const ft=getTableById(rel.fromTableId);
@@ -1488,7 +1108,13 @@ function renderRelations(){
     const toX=tt.x+(ft.schemaId===tt.schemaId?tt.id>ft.id?0:tt.tableWidth||190:0);
     const toY=tt.y+30+ti*16;
     const midX=(fromX+toX)/2;
-    const pathData="M "+fromX+" "+fromY+" L "+midX+" "+fromY+" L "+midX+" "+toY+" L "+toX+" "+toY;
+    const midY=(fromY+toY)/2;
+    const bend=typeof rel.bendOffset==="number"?rel.bendOffset:0;
+    const defCtrlX=(fromX+toX)/2 + bend;
+    const defCtrlY=(fromY+toY)/2;
+    const ctrlX=typeof rel.ctrlX==="number"?rel.ctrlX:defCtrlX;
+    const ctrlY=typeof rel.ctrlY==="number"?rel.ctrlY:defCtrlY;
+    const pathData=`M ${fromX} ${fromY} L ${ctrlX} ${fromY} L ${ctrlX} ${toY} L ${toX} ${toY}`;
     const gradientId="grad-"+rel.id;
     let strokeColor="#38bdf8";
     let strokeDash="";
@@ -1526,6 +1152,7 @@ function renderRelations(){
     if(rel.style==="gradient")path.setAttribute("stroke","url(#"+gradientId+")");else path.setAttribute("stroke",strokeColor);
     if(strokeDash)path.setAttribute("stroke-dasharray",strokeDash);
     if(State.selectedRelationId===rel.id)path.setAttribute("stroke","#fb923c");
+    path.setAttribute("marker-end","url(#arrow-head)");
     layer.appendChild(path);
     const hit=document.createElementNS("http://www.w3.org/2000/svg","path");
     hit.setAttribute("d",pathData);
@@ -1542,7 +1169,6 @@ function renderRelations(){
     const srcLabel=rel.sourceLabel;
     const tgtLabel=rel.targetLabel;
     if(centerLabel){
-      const midY=(fromY+toY)/2;
       const label=document.createElementNS("http://www.w3.org/2000/svg","text");
       label.setAttribute("x",midX);
       label.setAttribute("y",midY-4);
@@ -1573,6 +1199,23 @@ function renderRelations(){
       layer.appendChild(label)
     }
   })
+}
+function getRelLabelForDisplay(rel,key){
+  const isFa=State.displayMode==="fa";
+  if(key==="source")return isFa?(rel.sourceLabelFa||rel.sourceLabel)||"":rel.sourceLabel||rel.sourceLabelFa||"";
+  if(key==="center")return isFa?(rel.centerLabelFa||rel.centerLabel)||"":rel.centerLabel||rel.centerLabelFa||"";
+  if(key==="target")return isFa?(rel.targetLabelFa||rel.targetLabel)||"":rel.targetLabel||rel.targetLabelFa||"";
+  return"";
+}
+function truncateLabel(text,maxChars){
+  const t=(text||"").trim();
+  if(!t)return"";
+  if(t.length<=maxChars)return t;
+  if(maxChars<4)return t.slice(0,maxChars);
+  return t.slice(0,maxChars-3)+"...";
+}
+function isRTL(str){
+  return /[\u0600-\u06FF]/.test(str);
 }
 function updateSelectionStatus(){
   if(State.selectedRelationId){
@@ -1729,6 +1372,7 @@ function updateFieldEditor(){
     RightPanel.fldNullable.checked=true;
     RightPanel.fldPrimary.checked=false;
     RightPanel.fldPinned.checked=false;
+    if(RightPanel.fldTypeParams)RightPanel.fldTypeParams.value="";
     return
   }
   RightPanel.fldName.value=f.name;
@@ -1738,7 +1382,10 @@ function updateFieldEditor(){
   RightPanel.fldPrimary.checked=f.primary;
   RightPanel.fldPinned.checked=!!f.pinned;
   updateFieldTypeOptions();
-  RightPanel.fldType.value=f.type
+  const parsed=parseTypeWithParams(f.type);
+  RightPanel.fldType.value=parsed.base;
+  RightPanel.fldTypeParams.value=parsed.params;
+  toggleTypeParamsVisibility()
 }
 function updateFieldTypeOptions(){
   const sel=RightPanel.fldType;
@@ -1757,6 +1404,23 @@ function updateFieldTypeOptions(){
     op.textContent=current;
     sel.appendChild(op)
   }
+  toggleTypeParamsVisibility()
+}
+function parseTypeWithParams(value){
+  const m=(value||"").match(/^([^(]+)\(([^)]+)\)$/);
+  if(m)return{base:m[1],params:m[2]};
+  return{base:value||"",params:""};
+}
+function combineTypeAndParams(base,params){
+  if(!base)return"";
+  if(params)return base+"("+params+")";
+  return base;
+}
+function toggleTypeParamsVisibility(){
+  if(!RightPanel.fldType||!RightPanel.fldTypeParams)return;
+  const base=RightPanel.fldType.value.toLowerCase();
+  const needsParam=/(char|varchar|nchar|nvarchar|binary|varbinary|decimal|numeric)/.test(base);
+  RightPanel.fldTypeParams.parentElement.style.display=needsParam?"block":"none";
 }
 function saveFieldEditor(){
   const tids=Array.from(State.selectedTableIds);
@@ -1767,7 +1431,7 @@ function saveFieldEditor(){
   f.name=RightPanel.fldName.value.trim()||"field";
   f.faName=RightPanel.fldFaName.value.trim();
   f.description=RightPanel.fldDescription.value.trim();
-  f.type=RightPanel.fldType.value;
+  f.type=combineTypeAndParams(RightPanel.fldType.value,RightPanel.fldTypeParams.value.trim());
   f.nullable=RightPanel.fldNullable.checked;
   f.primary=RightPanel.fldPrimary.checked;
   f.pinned=RightPanel.fldPinned.checked;
@@ -1775,39 +1439,65 @@ function saveFieldEditor(){
 }
 function syncSchemaSelects(){
   ensureSchemas();
-  const sels=[RightPanel.tblSchemaSelect,RightPanel.relFromTable,RightPanel.relToTable];
+  const sels=[RightPanel.tblSchemaSelect];
   sels.forEach(sel=>{
     if(!sel)return;
     const cur=sel.value;
     sel.innerHTML="";
-    if(sel===RightPanel.tblSchemaSelect){
-      State.schemas.forEach(s=>{
-        const op=document.createElement("option");
-        op.value=s.id;
-        op.textContent=s.name;
-        sel.appendChild(op)
-      })
-    }
+    State.schemas.forEach(s=>{
+      const op=document.createElement("option");
+      op.value=s.id;
+      op.textContent=s.name;
+      sel.appendChild(op)
+    });
+    sel.value=cur||State.schemas[0].id;
   });
+  updateRelationSchemaSelects();
   updateRelationsTableSelects();
   updateSchemaManager()
 }
-function updateRelationsTableSelects(){
-  const sels=[RightPanel.relFromTable,RightPanel.relToTable];
-  sels.forEach(sel=>{
+function updateRelationSchemaSelects(){
+  const pair=[RightPanel.relFromSchema,RightPanel.relToSchema];
+  pair.forEach(sel=>{
+    if(!sel)return;
     const cur=sel.value;
     sel.innerHTML="";
     const op0=document.createElement("option");
     op0.value="";
-    op0.textContent="Select table";
+    op0.textContent="All schemas";
     sel.appendChild(op0);
+    State.schemas.forEach(s=>{
+      const op=document.createElement("option");
+      op.value=s.id;
+      op.textContent=s.name;
+      sel.appendChild(op)
+    });
+    sel.value=cur;
+  })
+}
+function updateRelationsTableSelects(){
+  const pairs=[
+    {schemaSel:RightPanel.relFromSchema,tableSel:RightPanel.relFromTable},
+    {schemaSel:RightPanel.relToSchema,tableSel:RightPanel.relToTable}
+  ];
+  pairs.forEach(({schemaSel,tableSel})=>{
+    if(!tableSel)return;
+    const cur=tableSel.value;
+    const schemaFilter=schemaSel?.value||"";
+    tableSel.innerHTML="";
+    const op0=document.createElement("option");
+    op0.value="";
+    op0.textContent="Select table";
+    tableSel.appendChild(op0);
     State.tables.forEach(t=>{
+      if(schemaFilter && t.schemaId!==schemaFilter)return;
       const op=document.createElement("option");
       op.value=t.id;
       op.textContent=(getSchemaById(t.schemaId)?.name||"")+". "+t.name;
-      sel.appendChild(op)
+      tableSel.appendChild(op)
     });
-    sel.value=cur
+    tableSel.value=cur;
+    if(!tableSel.value && tableSel.options.length>1)tableSel.selectedIndex=1;
   });
   updateRelationFieldSelects()
 }
@@ -1816,6 +1506,8 @@ function updateRelationFieldSelects(){
   const tt=getTableById(RightPanel.relToTable.value);
   RightPanel.relFromField.innerHTML="";
   RightPanel.relToField.innerHTML="";
+  if(ft&&RightPanel.relFromSchema)RightPanel.relFromSchema.value=ft.schemaId||"";
+  if(tt&&RightPanel.relToSchema)RightPanel.relToSchema.value=tt.schemaId||"";
   if(ft){
     ft.fields.forEach(f=>{
       const op=document.createElement("option");
@@ -1835,6 +1527,8 @@ function updateRelationFieldSelects(){
 }
 RightPanel.relFromTable.addEventListener("change",updateRelationFieldSelects);
 RightPanel.relToTable.addEventListener("change",updateRelationFieldSelects);
+if(RightPanel.relFromSchema)RightPanel.relFromSchema.addEventListener("change",()=>updateRelationsTableSelects());
+if(RightPanel.relToSchema)RightPanel.relToSchema.addEventListener("change",()=>updateRelationsTableSelects());
 RightPanel.addRelationBtn.addEventListener("click",()=>{
   const ftId=RightPanel.relFromTable.value;
   const ffId=RightPanel.relFromField.value;
@@ -1849,25 +1543,36 @@ RightPanel.addRelationBtn.addEventListener("click",()=>{
   State.selectedFieldId=null;
   updateAllUI()
 });
-["relSourceLabel","relCenterLabel","relTargetLabel","relStyle"].forEach(id=>{
+["relSourceLabel","relSourceLabelFa","relCenterLabel","relCenterLabelFa","relTargetLabel","relTargetLabelFa","relStyle"].forEach(id=>{
   RightPanel[id].addEventListener("input",()=>saveSelectedRelation())
 });
 RightPanel.relColorA.addEventListener("input",()=>saveSelectedRelation());
 RightPanel.relColorB.addEventListener("input",()=>saveSelectedRelation());
+RightPanel.relBend.addEventListener("input",()=>saveSelectedRelation());
+RightPanel.fldType.addEventListener("change",()=>toggleTypeParamsVisibility());
+setMode("move");
 function updateRelationsEditor(){
   const rel=State.relations.find(r=>r.id===State.selectedRelationId)||null;
   if(rel){
     RightPanel.relSourceLabel.value=rel.sourceLabel||"";
+    RightPanel.relSourceLabelFa.value=rel.sourceLabelFa||"";
     RightPanel.relCenterLabel.value=rel.centerLabel||"";
+    RightPanel.relCenterLabelFa.value=rel.centerLabelFa||"";
     RightPanel.relTargetLabel.value=rel.targetLabel||"";
+    RightPanel.relTargetLabelFa.value=rel.targetLabelFa||"";
     RightPanel.relStyle.value=rel.style||"schema";
     RightPanel.relColorA.value=rel.colorA||"#38bdf8";
-    RightPanel.relColorB.value=rel.colorB||"#8b5cf6"
+    RightPanel.relColorB.value=rel.colorB||"#8b5cf6";
+    RightPanel.relBend.value=typeof rel.bendOffset==="number"?rel.bendOffset:0;
   }else{
     RightPanel.relSourceLabel.value="";
+    RightPanel.relSourceLabelFa.value="";
     RightPanel.relCenterLabel.value="";
+    RightPanel.relCenterLabelFa.value="";
     RightPanel.relTargetLabel.value="";
-    RightPanel.relStyle.value="schema"
+    RightPanel.relTargetLabelFa.value="";
+    RightPanel.relStyle.value="schema";
+    RightPanel.relBend.value=0;
   }
   renderRelationsList()
 }
@@ -1875,11 +1580,15 @@ function saveSelectedRelation(){
   const rel=State.relations.find(r=>r.id===State.selectedRelationId)||null;
   if(!rel)return;
   rel.sourceLabel=RightPanel.relSourceLabel.value.trim();
+  rel.sourceLabelFa=RightPanel.relSourceLabelFa.value.trim();
   rel.centerLabel=RightPanel.relCenterLabel.value.trim();
+  rel.centerLabelFa=RightPanel.relCenterLabelFa.value.trim();
   rel.targetLabel=RightPanel.relTargetLabel.value.trim();
+  rel.targetLabelFa=RightPanel.relTargetLabelFa.value.trim();
   rel.style=RightPanel.relStyle.value;
   rel.colorA=RightPanel.relColorA.value;
   rel.colorB=RightPanel.relColorB.value;
+  rel.bendOffset=Number(RightPanel.relBend.value)||0;
   updateAllUI()
 }
 function renderRelationsList(){
@@ -1931,11 +1640,20 @@ function renderRelationsList(){
     });
     right.appendChild(selBtn);right.appendChild(delBtn);
     row.appendChild(left);row.appendChild(right);
-    list.appendChild(row)
-  })
+  list.appendChild(row)
+ })
 }
 RightPanel.addSchemaBtn.addEventListener("click",()=>{
-  const s={id:uuid(),name:"schema_"+(State.schemas.length+1),faName:"",colorA:"#38bdf8",colorB:"#8b5cf6"};
+  const s={
+    id:uuid(),
+    name:"schema_"+(State.schemas.length+1),
+    faName:"",
+    colorA:"#38bdf8",
+    colorB:"#8b5cf6",
+    borderColor:"#22d3ee",
+    borderColorA:"#22d3ee",
+    borderColorB:"#0ea5e9"
+  };
   State.schemas.push(s);
   updateSchemaManager();
   RightPanel.schemaList.value=s.id;
@@ -1949,6 +1667,9 @@ RightPanel.saveSchemaBtn.addEventListener("click",()=>{
   s.faName=RightPanel.schemaFaName.value.trim();
   s.colorA=RightPanel.schemaColorA.value||"#38bdf8";
   s.colorB=RightPanel.schemaColorB.value||"#8b5cf6";
+  s.borderColorA=RightPanel.schemaBorderColorA.value||s.colorA||"#22d3ee";
+  s.borderColorB=RightPanel.schemaBorderColorB.value||s.colorB||"#0ea5e9";
+  s.borderColor=s.borderColorA;
   updateAllUI()
 });
 RightPanel.deleteSchemaBtn.addEventListener("click",()=>{
@@ -1957,6 +1678,7 @@ RightPanel.deleteSchemaBtn.addEventListener("click",()=>{
   State.schemas=State.schemas.filter(s=>s.id!==id);
   State.tables.forEach(t=>{if(t.schemaId===id)t.schemaId=null});
   ensureSchemas();
+  reassignTablesToExistingSchema();
   updateAllUI()
 });
 function updateSchemaManager(){
@@ -1989,14 +1711,25 @@ function loadSchemaIntoEditor(){
   RightPanel.schemaName.value=s.name;
   RightPanel.schemaFaName.value=s.faName||"";
   RightPanel.schemaColorA.value=s.colorA||"#38bdf8";
-  RightPanel.schemaColorB.value=s.colorB||"#8b5cf6"
+  RightPanel.schemaColorB.value=s.colorB||"#8b5cf6";
+  RightPanel.schemaBorderColorA.value=s.borderColorA||s.borderColor||s.colorA||"#22d3ee";
+  RightPanel.schemaBorderColorB.value=s.borderColorB||s.borderColor||s.colorB||"#0ea5e9"
 }
 function buildSchemaJson(){
   return{
     dbType:State.dbType,
     dbVersion:State.dbVersion,
     dbName:State.dbName,
-    schemas:State.schemas.map(s=>({id:s.id,name:s.name,faName:s.faName,colorA:s.colorA,colorB:s.colorB})),
+    schemas:State.schemas.map(s=>({
+      id:s.id,
+      name:s.name,
+      faName:s.faName,
+      colorA:s.colorA,
+      colorB:s.colorB,
+      borderColor:s.borderColor,
+      borderColorA:s.borderColorA,
+      borderColorB:s.borderColorB
+    })),
     tables:State.tables.map(t=>({
       id:t.id,
       name:t.name,
@@ -2028,8 +1761,14 @@ function buildSchemaJson(){
       colorA:r.colorA,
       colorB:r.colorB,
       sourceLabel:r.sourceLabel,
+      sourceLabelFa:r.sourceLabelFa,
       centerLabel:r.centerLabel,
-      targetLabel:r.targetLabel
+      centerLabelFa:r.centerLabelFa,
+      targetLabel:r.targetLabel,
+      targetLabelFa:r.targetLabelFa,
+      bendOffset:r.bendOffset||0,
+      ctrlX:typeof r.ctrlX==="number"?r.ctrlX:null,
+      ctrlY:typeof r.ctrlY==="number"?r.ctrlY:null
     }))
   }
 }
@@ -2066,7 +1805,16 @@ function importJsonSchema(text){
   State.dbType=data.dbType||State.dbType;
   State.dbVersion=data.dbVersion||State.dbVersion;
   State.dbName=data.dbName||State.dbName;
-  State.schemas=(data.schemas||[]).map(s=>({id:s.id||uuid(),name:s.name||"schema",faName:s.faName||"",colorA:s.colorA||"#38bdf8",colorB:s.colorB||"#8b5cf6"}));
+  State.schemas=(data.schemas||[]).map(s=>({
+    id:s.id||uuid(),
+    name:s.name||"schema",
+    faName:s.faName||"",
+    colorA:s.colorA||"#38bdf8",
+    colorB:s.colorB||"#8b5cf6",
+    borderColor:s.borderColor||s.borderColorA||s.colorA||"#22d3ee",
+    borderColorA:s.borderColorA||s.borderColor||s.colorA||"#22d3ee",
+    borderColorB:s.borderColorB||s.borderColor||s.colorB||"#0ea5e9"
+  }));
   if(!State.schemas.length)State.schemas.push(defaultSchema());
   State.tables=(data.tables||[]).map(t=>({
     id:t.id||uuid(),
@@ -2099,9 +1847,16 @@ function importJsonSchema(text){
     colorA:r.colorA||"#38bdf8",
     colorB:r.colorB||"#8b5cf6",
     sourceLabel:r.sourceLabel||"",
+    sourceLabelFa:r.sourceLabelFa||"",
     centerLabel:r.centerLabel||"",
-    targetLabel:r.targetLabel||""
+    centerLabelFa:r.centerLabelFa||"",
+    targetLabel:r.targetLabel||"",
+    targetLabelFa:r.targetLabelFa||"",
+    bendOffset:typeof r.bendOffset==="number"?r.bendOffset:0,
+    ctrlX:typeof r.ctrlX==="number"?r.ctrlX:null,
+    ctrlY:typeof r.ctrlY==="number"?r.ctrlY:null
   }));
+  reassignTablesToExistingSchema();
   if(!State.tables.length){
     const t=createTable("table_1",State.schemas[0].id,120,120);
     State.tables.push(t)
@@ -2170,7 +1925,16 @@ function importSqlText(text){
     ensureSchemas();
     let schemaObj=State.schemas.find(s=>s.name===parsed.schema)||null;
     if(parsed.schema&&!schemaObj){
-      schemaObj={id:uuid(),name:parsed.schema,faName:"",colorA:"#38bdf8",colorB:"#8b5cf6"};
+      schemaObj={
+        id:uuid(),
+        name:parsed.schema,
+        faName:"",
+        colorA:"#38bdf8",
+        colorB:"#8b5cf6",
+        borderColor:"#22d3ee",
+        borderColorA:"#22d3ee",
+        borderColorB:"#0ea5e9"
+      };
       State.schemas.push(schemaObj)
     }
     const existing=State.tables.find(t=>t.name===parsed.tableName&&(getSchemaById(t.schemaId)?.name||"")===parsed.schema);
@@ -2214,22 +1978,10 @@ function parseCreateTableBlock(block){
 LeftPanel.jsonArea.value=JSON.stringify({dbType:State.dbType,dbVersion:State.dbVersion,dbName:State.dbName,tables:[],relations:[]},null,2);
 applyTransform();
 showView("login");
-</script>
-</body>
-</html>
-
-
-
-
-
-
-
-
-
-
-
-
-
+window.addEventListener("error",e=>{
+  console.error("Runtime error",e.message,e.error);
+    if(Login.error)Login.error.textContent="???? ?????????: "+(err.message||err);
+});
 
 
 

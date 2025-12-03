@@ -1,0 +1,638 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ERD Studio</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/dockbar@latest/dockbar.iife.js"></script>
+<link rel="stylesheet" href="assets/css/styles.css">
+</head>
+<body>
+<div id="loginView" class="min-h-screen flex items-center justify-center dark-bg">
+  <div class="w-full max-w-sm panel-bg border border-subtle rounded-2xl p-6 space-y-4 shadow-2xl">
+    <div class="flex items-center gap-2 mb-2">
+      <div class="w-9 h-9 rounded-2xl bg-gradient-to-br from-sky-500 via-cyan-400 to-emerald-400 flex items-center justify-center text-[11px] font-semibold">
+        ERD
+      </div>
+      <div>
+        <div class="text-sm font-semibold text-slate-50">ERD Studio</div>
+        <div class="text-[11px] text-slate-400">Visual schema designer and SQL generator</div>
+      </div>
+    </div>
+    <div class="space-y-3 text-xs">
+      <div class="space-y-1">
+        <div class="text-slate-300">Username</div>
+        <input id="loginUser" class="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500 text-[12px]" autocomplete="off">
+      </div>
+      <div class="space-y-1">
+        <div class="text-slate-300">Password</div>
+        <input id="loginPass" type="password" class="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500 text-[12px]" autocomplete="off">
+      </div>
+      <button id="loginBtn" type="button" class="w-full mt-1 px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 active:bg-sky-700 font-medium transition text-[12px]">
+        Sign in
+      </button>
+      <div id="loginError" class="h-4 text-[11px] text-red-400"></div>
+    </div>
+  </div>
+</div>
+
+<div id="configView" class="hidden min-h-screen flex items-center justify-center dark-bg">
+  <div class="w-full max-w-lg panel-bg border border-subtle rounded-2xl p-6 space-y-4 shadow-2xl">
+    <div class="mb-2">
+      <div class="text-sm font-semibold text-slate-50">Database configuration</div>
+      <div class="text-[11px] text-slate-400">Choose engine, version and optional JSON/SQL to start from</div>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+      <div class="space-y-2">
+        <div>
+          <div class="mb-1 text-slate-300">Database name</div>
+          <input id="cfgDbName" class="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500" value="my_database">
+        </div>
+        <div>
+          <div class="mb-1 text-slate-300">Engine</div>
+          <select id="cfgDbType" class="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500">
+            <option value="mysql">MySQL</option>
+            <option value="postgres">PostgreSQL</option>
+            <option value="sqlite">SQLite</option>
+            <option value="sqlserver">SQL Server</option>
+          </select>
+        </div>
+        <div>
+          <div class="mb-1 text-slate-300">Version</div>
+          <select id="cfgDbVersion" class="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500">
+            <option value="latest">Latest</option>
+          </select>
+        </div>
+      </div>
+      <div class="space-y-3">
+        <div>
+          <div class="mb-1 text-slate-300">JSON schema file</div>
+          <input id="cfgJsonFile" type="file" accept=".json" class="block w-full text-[11px] text-slate-300 file:text-[11px] file:px-2 file:py-1.5 file:rounded-lg file:border-0 file:bg-slate-900 file:text-slate-100">
+          <div class="mt-1 text-[10px] text-slate-500">Optional. Full model with tables, fields and relations.</div>
+        </div>
+        <div>
+          <div class="mb-1 text-slate-300">SQL file</div>
+          <input id="cfgSqlFile" type="file" accept=".sql,.txt" class="block w-full text-[11px] text-slate-300 file:text-[11px] file:px-2 file:py-1.5 file:rounded-lg file:border-0 file:bg-slate-900 file:text-slate-100">
+          <div class="mt-1 text-[10px] text-slate-500">Optional. Simple CREATE TABLE with foreign keys.</div>
+        </div>
+      </div>
+    </div>
+    <div class="flex items-center justify-between mt-2 text-xs">
+      <button id="cfgBack" class="px-3 py-2 rounded-xl border border-slate-700 text-slate-200 hover:bg-slate-900">
+        Back
+      </button>
+      <div class="flex items-center gap-3">
+        <div id="cfgStatus" class="text-[11px] text-slate-400"></div>
+        <button id="cfgContinue" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 font-semibold">
+          Continue to designer
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="mainView" class="hidden app-shell">
+    <div class="display-surface"></div>
+    <header id="mainHeader" class="border-b border-subtle relative header-shell" style="background: var(--header-bg);">
+    <div id="headerContent" class="header-inner w-full px-3 md:px-4 py-2 flex items-center gap-2 flex-wrap">
+      <div class="hidden md:flex items-center gap-2">
+        <div class="px-2 py-1 rounded-full bg-slate-950 border border-slate-800 flex items-center gap-2 header-pill db-pill">
+          <span class="text-slate-500">DB</span>
+          <span id="headerDbName" class="font-medium text-slate-100"></span>
+          <button id="editDbNameBtn" class="text-[10px] header-btn header-btn-small ml-auto" title="Edit name">
+            <svg class="icon-svg" viewBox="0 0 24 24"><path d="M4 17.5V20h2.5L17 9.5l-2.5-2.5L4 17.5zM19.7 7.8c.4-.4.4-1 0-1.4l-1.9-1.9a1 1 0 0 0-1.4 0l-1.1 1.1 3.3 3.3 1.1-1.1z"></path></svg>
+          </button>
+        </div>
+        <div class="px-2 py-1 rounded-full bg-slate-950 border border-slate-800 flex items-center gap-2 header-pill">
+          <span id="headerDbType" class="font-medium text-slate-100"></span>
+          <span id="headerDbVersion" class="text-slate-500"></span>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 text-[11px] flex-wrap">
+        <div class="flex items-center gap-1 border border-slate-700 rounded-full px-1 py-0.5 header-pill header-toggle-group">
+          <button id="displayEnBtn" class="px-2 py-0.5 rounded-full text-[10px] bg-sky-600 text-slate-50 header-btn">EN</button>
+          <button id="displayFaBtn" class="px-2 py-0.5 rounded-full text-[10px] text-slate-300 header-btn">FA</button>
+        </div>
+        <div class="flex items-center gap-1 border border-slate-700 rounded-full px-1 py-0.5 header-pill header-toggle-group">
+          <button id="themeDarkBtn" class="header-btn">Dark</button>
+          <button id="themeLightBtn" class="header-btn">Light</button>
+        </div>
+        <button id="optionToggleBtn" class="header-btn">Option</button>
+        <button id="panelToggleHeader" class="header-btn">Panel</button>
+        <button id="autoSortBtn" class="hidden sm:inline-flex header-btn">Auto sort</button>
+        <button id="exportJsonBtn" class="hidden sm:inline-flex header-btn">Export JSON</button>
+        <button id="exportSqlBtn" class="hidden sm:inline-flex header-btn">Export SQL</button>
+      <button id="logoutBtn" class="header-btn">Logout</button>
+      </div>
+    </div>
+    <button id="headerPinBtn" class="header-pin-btn" title="Pin/Unpin header">
+      <svg class="icon-svg" viewBox="0 0 24 24"><path d="M8 4.5 14.5 11m-6.5-6.5 3.2 3.2-5 5L4 14l1.3-2.7zm6.5 6.5 3.6-3.6 2 2-3.6 3.6m-8 3 4.5 4.5" /></svg>
+    </button>
+  </header>
+
+  <div class="workspace">
+    <aside id="optionPanel" class="option-panel text-xs">
+      <div class="option-panel-handle" title="Drag to move panel"></div>
+      <dock-wrapper class="option-dock" size="42" padding="6" gap="6" max-scale="1.4" max-range="110" direction="vertical" position="left">
+        <dock-item>
+          <button id="optionZoomIn" type="button" class="glass-btn" title="Zoom in" data-tip="Zoom in">
+            <svg class="icon-svg" viewBox="0 0 24 24"><path d="M12 5v14m-7-7h14"></path></svg>
+          </button>
+        </dock-item>
+        <dock-item>
+          <button id="optionZoomOut" type="button" class="glass-btn" title="Zoom out" data-tip="Zoom out">
+            <svg class="icon-svg" viewBox="0 0 24 24"><path d="M5 12h14"></path></svg>
+          </button>
+        </dock-item>
+        <dock-item>
+          <button id="optionZoomReset" type="button" class="glass-btn text-[10px] font-semibold" title="Reset zoom to 100%" data-tip="Reset zoom">
+            100%
+          </button>
+        </dock-item>
+        <dock-item>
+          <button id="optionPanBtn" type="button" class="glass-btn" title="Pan canvas" data-tip="Pan">
+            <svg class="icon-svg" viewBox="0 0 24 24"><path d="M9 14V9.5a1.5 1.5 0 1 1 3 0V14" /><path d="M12 9V7a1.5 1.5 0 1 1 3 0v6" /><path d="M15 9V8a1.5 1.5 0 1 1 3 0v6.5A3.5 3.5 0 0 1 14.5 18H12a3 3 0 0 1-3-3v-3a1.5 1.5 0 1 1 3 0" /></svg>
+          </button>
+        </dock-item>
+        <dock-item>
+          <button id="optionSelectBtn" type="button" class="glass-btn" title="Select tables, fields or relations" data-tip="Select">
+            <svg class="icon-svg" viewBox="0 0 24 24"><path d="M11.5 5.5a3 3 0 0 1 6 0v4" /><path d="M12 9v10l-2.5-2.5-2.5 2.2-2-2 3-2.4L12 17" /><path d="M15.5 13.5 17 18a2 2 0 0 0 3 .8l1-.8" /></svg>
+          </button>
+        </dock-item>
+        <dock-item>
+          <button id="optionMoveBtn" type="button" class="glass-btn" title="Move selection / reorder fields" data-tip="Move">
+            <svg class="icon-svg" viewBox="0 0 24 24"><path d="M5 4.5 12 21l1.9-6.4 6.1-1.7L5 4.5z" /></svg>
+          </button>
+        </dock-item>
+      </dock-wrapper>
+      <div id="zoomIndicator" class="option-zoom-indicator">100%</div>
+    </aside>
+    <div class="canvas-shell">
+      <div id="canvasPan">
+        <svg id="relationLayer" class="line-layer"></svg>
+        <div id="canvasInner"></div>
+        <div class="canvas-controls">
+          <dock-wrapper size="42" padding="6" gap="6" max-scale="1.4" max-range="110" direction="vertical" position="left">
+            <dock-item><button id="modeSelectBtn" class="control-btn" title="Select"><svg class="icon-svg" viewBox="0 0 24 24"><path d="m7 3 5.5 16.5 1.8-6.3 6.2-1.6z"></path></svg></button></dock-item>
+            <dock-item><button id="modeMoveBtn" class="control-btn" title="Move tables/relations"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M12 3v4m0 10v4m7-7h-4M9 14H5m9-6-2-2-2 2m4 10-2 2-2-2m8-6-2 2 2 2m-10-4 2 2-2 2"></path></svg></button></dock-item>
+            <dock-item><button id="modePanBtn" class="control-btn" title="Pan canvas"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M8 9v-1a2 2 0 1 1 4 0v2M12 7V5a2 2 0 1 1 4 0v5M16 8.5V7a2 2 0 1 1 4 0v6c0 3-2 5-5 5-2 0-3.4-.9-4.6-2.4l-1.7-2.2a1.2 1.2 0 0 1 1.9-1.5l1.2 1.6"></path></svg></button></dock-item>
+            <dock-item><button id="zoomInBtn" class="control-btn" title="Zoom in"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M12 5v14m-7-7h14"></path></svg></button></dock-item>
+            <dock-item><button id="zoomOutBtn" class="control-btn" title="Zoom out"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M5 12h14"></path></svg></button></dock-item>
+            <dock-item><button id="zoomResetBtn" class="control-btn text-[10px]" title="Reset zoom">100</button></dock-item>
+          </dock-wrapper>
+        </div>
+        <div class="canvas-status">
+          <span id="statusSelection">No selection</span>
+          <span class="text-slate-600">•</span>
+          <span id="statusZoom">100%</span>
+          <span class="text-slate-600">•</span>
+          <span class="text-slate-400 text-[9px]">Use Ctrl + wheel or +/- to zoom</span>
+        </div>
+      </div>
+    </div>
+
+    <aside id="sidePanel" class="side-panel text-xs">
+      <div class="side-panel-header">
+        <div class="side-panel-title">Panel</div>
+      </div>
+            <div class="side-panel-scroll scrollbar-thin" id="sidePanelScroll">
+        <div class="accordion" data-section="json" data-order="0" data-pinned="false">
+          <div class="accordion-head">
+            <button class="accordion-toggle collapsed" data-target="jsonAccordion">
+              <span>Schema JSON</span>
+              <span class="accordion-chevron">
+                <svg class="icon-svg" viewBox="0 0 24 24">
+                  <path d="m6 9 6 6 6-6"></path>
+                </svg>
+              </span>
+            </button>
+            <div class="accordion-actions">
+              <button class="accordion-pin" title="Pin section">
+                <svg class="icon-svg" viewBox="0 0 24 24">
+                  <path d="M15 4 9 10M14 5l5 5-3 3-5-5m-5 9 2-2m5 2-5-5m-4 8 3-3"></path>
+                </svg>
+              </button>
+              <button class="accordion-handle" title="Drag (right-click hold) to reorder">
+                <svg class="icon-svg" viewBox="0 0 24 24">
+                  <path d="M9 7h.01M12 7h.01M15 7h.01M9 12h.01M12 12h.01M15 12h.01M9 17h.01M12 17h.01M15 17h.01"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div id="jsonAccordion" class="accordion-body collapsed space-y-2">
+            <div class="flex items-center justify-between gap-2">
+              <div class="text-slate-300 text-[11px]">Schema JSON</div>
+              <button id="copyJsonBtn" class="px-2 py-1 rounded-md border border-slate-700 hover:bg-slate-900 text-[10px]">Copy</button>
+            </div>
+            <textarea id="jsonArea" class="w-full min-h-[160px] h-[26vh] resize-none bg-slate-950 border border-slate-900 rounded-lg p-2 text-[11px] font-mono leading-snug scrollbar-thin focus:outline-none focus:ring-1 focus:ring-sky-600"></textarea>
+            <button id="importJsonBtn" class="w-full px-2 py-1.5 rounded-md bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[11px]">Import JSON into diagram</button>
+          </div>
+        </div>
+
+        <div class="accordion" data-section="sql" data-order="1" data-pinned="false">
+          <div class="accordion-head">
+            <button class="accordion-toggle collapsed" data-target="sqlAccordion">
+              <span>Database SQL</span>
+              <span class="accordion-chevron">
+                <svg class="icon-svg" viewBox="0 0 24 24">
+                  <path d="m6 9 6 6 6-6"></path>
+                </svg>
+              </span>
+            </button>
+            <div class="accordion-actions">
+              <button class="accordion-pin" title="Pin section">
+                <svg class="icon-svg" viewBox="0 0 24 24">
+                  <path d="M15 4 9 10M14 5l5 5-3 3-5-5m-5 9 2-2m5 2-5-5m-4 8 3-3"></path>
+                </svg>
+              </button>
+              <button class="accordion-handle" title="Drag (right-click hold) to reorder">
+                <svg class="icon-svg" viewBox="0 0 24 24">
+                  <path d="M9 7h.01M12 7h.01M15 7h.01M9 12h.01M12 12h.01M15 12h.01M9 17h.01M12 17h.01M15 17h.01"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div id="sqlAccordion" class="accordion-body collapsed space-y-2">
+            <div class="flex items-center justify-between gap-2">
+              <div class="text-slate-300 text-[11px]">Database SQL</div>
+              <button id="copySqlBtn" class="px-2 py-1 rounded-md border border-slate-700 hover:bg-slate-900 text-[10px]">Copy</button>
+            </div>
+            <textarea id="sqlArea" class="w-full min-h-[160px] h-[26vh] resize-none bg-slate-950 border border-slate-900 rounded-lg p-2 text-[11px] font-mono leading-snug scrollbar-thin focus:outline-none focus:ring-1 focus:ring-sky-600"></textarea>
+            <button id="applySqlBtn" class="w-full px-2 py-1.5 rounded-md bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[11px]">Apply SQL to design</button>
+          </div>
+        </div>
+
+        <div class="accordion" data-section="table" data-order="2" data-pinned="false">
+          <div class="accordion-head">
+            <button class="accordion-toggle collapsed" data-target="tableAccordion">
+              <span>Table editor</span>
+              <span class="accordion-chevron">
+                <svg class="icon-svg" viewBox="0 0 24 24">
+                  <path d="m6 9 6 6 6-6"></path>
+                </svg>
+              </span>
+            </button>
+            <div class="accordion-actions">
+              <button class="accordion-pin" title="Pin section">
+                <svg class="icon-svg" viewBox="0 0 24 24">
+                  <path d="M15 4 9 10M14 5l5 5-3 3-5-5m-5 9 2-2m5 2-5-5m-4 8 3-3"></path>
+                </svg>
+              </button>
+              <button class="accordion-handle" title="Drag (right-click hold) to reorder">
+                <svg class="icon-svg" viewBox="0 0 24 24">
+                  <path d="M9 7h.01M12 7h.01M15 7h.01M9 12h.01M12 12h.01M15 12h.01M9 17h.01M12 17h.01M15 17h.01"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div id="tableAccordion" class="accordion-body collapsed space-y-3">
+            <div class="flex items-center justify-between">
+              <div class="text-[10px] text-slate-400">Select a table, field or relation</div>
+              <button id="newTableBtn" class="px-2.5 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-[11px]">New</button>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="flex-1">
+                <div class="mb-1 text-slate-300">Current table</div>
+                <select id="tableSelect" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600"></select>
+              </div>
+              <button id="deleteBtn" class="mt-5 px-2.5 py-1.5 rounded-md border border-red-600 text-red-300 hover:bg-red-950 text-[11px]">Delete</button>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div class="space-y-1">
+                <div class="text-slate-300">Table name</div>
+                <input id="tblName" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600">
+              </div>
+              <div class="space-y-1">
+                <div class="text-slate-300">Schema</div>
+                <select id="tblSchemaSelect" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600"></select>
+              </div>
+              <div class="space-y-1">
+                <div class="text-slate-300">Persian name</div>
+                <input id="tblFaName" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600">
+              </div>
+              <div class="space-y-1">
+                <div class="text-slate-300">Delete behavior</div>
+                <select id="tblDeleteBehavior" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600">
+                  <option value="none">None</option>
+                  <option value="cascade">CASCADE dependents</option>
+                  <option value="set_null">SET NULL dependents</option>
+                </select>
+              </div>
+            </div>
+            <div class="space-y-1">
+              <div class="text-slate-300">Description</div>
+              <textarea id="tblDescription" class="w-full min-h-[60px] px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600"></textarea>
+            </div>
+          </div>
+        </div>
+
+        <div class="accordion" data-section="field" data-order="3" data-pinned="false">
+          <div class="accordion-head">
+            <button class="accordion-toggle collapsed" data-target="fieldAccordion">
+              <span>Selected field</span>
+              <span class="accordion-chevron">
+                <svg class="icon-svg" viewBox="0 0 24 24">
+                  <path d="m6 9 6 6 6-6"></path>
+                </svg>
+              </span>
+            </button>
+            <div class="accordion-actions">
+              <button class="accordion-pin" title="Pin section">
+                <svg class="icon-svg" viewBox="0 0 24 24">
+                  <path d="M15 4 9 10M14 5l5 5-3 3-5-5m-5 9 2-2m5 2-5-5m-4 8 3-3"></path>
+                </svg>
+              </button>
+              <button class="accordion-handle" title="Drag (right-click hold) to reorder">
+                <svg class="icon-svg" viewBox="0 0 24 24">
+                  <path d="M9 7h.01M12 7h.01M15 7h.01M9 12h.01M12 12h.01M15 12h.01M9 17h.01M12 17h.01M15 17h.01"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div id="fieldAccordion" class="accordion-body collapsed space-y-2">
+            <div class="flex items-center justify-between">
+              <div class="text-[10px] text-slate-400">Click a field on canvas to edit it here.</div>
+              <button id="addFieldBtn" class="px-2 py-1 rounded-md bg-slate-900 hover:bg-slate-800 text-[11px]">Add field</button>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div class="space-y-1">
+                <div class="text-slate-300">Name</div>
+                <input id="fldName" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600">
+              </div>
+              <div class="space-y-1">
+                <div class="text-slate-300">Persian name</div>
+                <input id="fldFaName" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600">
+              </div>
+            <div class="space-y-1">
+              <div class="text-slate-300">Type</div>
+              <select id="fldType" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600"></select>
+            </div>
+            <div class="space-y-1">
+              <div class="text-slate-300">Type params</div>
+              <input id="fldTypeParams" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600" placeholder="e.g. 255 or 18,2">
+            </div>
+            <div class="space-y-1">
+              <div class="text-slate-300">Options</div>
+              <div class="flex gap-2 items-center">
+                <label class="flex items-center gap-1 text-[11px]"><input id="fldNullable" type="checkbox" class="accent-sky-500"><span>Nullable</span></label>
+                <label class="flex items-center gap-1 text-[11px]"><input id="fldPrimary" type="checkbox" class="accent-sky-500"><span>Primary</span></label>
+                </div>
+              </div>
+            </div>
+            <div class="space-y-1">
+              <div class="text-slate-300">Description</div>
+              <input id="fldDescription" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600">
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <label class="flex items-center gap-1 text-[11px]">
+                <input id="fldPinned" type="checkbox" class="accent-sky-500">
+                <span>Pin to top</span>
+              </label>
+              <div class="flex gap-1">
+                <button id="moveFieldUp" class="px-2 py-1 rounded-md border border-slate-700 hover:bg-slate-900 text-[11px]">▲</button>
+                <button id="moveFieldDown" class="px-2 py-1 rounded-md border border-slate-700 hover:bg-slate-900 text-[11px]">▼</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="accordion" data-section="relations" data-order="4" data-pinned="false">
+          <div class="accordion-head">
+            <button class="accordion-toggle collapsed" data-target="relationsAccordion">
+              <span>Relations</span>
+              <span class="accordion-chevron">
+                <svg class="icon-svg" viewBox="0 0 24 24">
+                  <path d="m6 9 6 6 6-6"></path>
+                </svg>
+              </span>
+            </button>
+            <div class="accordion-actions">
+              <button class="accordion-pin" title="Pin section">
+                <svg class="icon-svg" viewBox="0 0 24 24">
+                  <path d="M15 4 9 10M14 5l5 5-3 3-5-5m-5 9 2-2m5 2-5-5m-4 8 3-3"></path>
+                </svg>
+              </button>
+              <button class="accordion-handle" title="Drag (right-click hold) to reorder">
+                <svg class="icon-svg" viewBox="0 0 24 24">
+                  <path d="M9 7h.01M12 7h.01M15 7h.01M9 12h.01M12 12h.01M15 12h.01M9 17h.01M12 17h.01M15 17h.01"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div id="relationsAccordion" class="accordion-body collapsed space-y-2">
+            <div class="grid grid-cols-2 gap-2">
+              <div class="space-y-1">
+                <div class="text-slate-300">From table</div>
+                <select id="relFromTable" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600"></select>
+              </div>
+              <div class="space-y-1">
+                <div class="text-slate-300">From field</div>
+                <select id="relFromField" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600"></select>
+              </div>
+              <div class="space-y-1">
+                <div class="text-slate-300">To table</div>
+                <select id="relToTable" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600"></select>
+              </div>
+              <div class="space-y-1">
+                <div class="text-slate-300">To field</div>
+                <select id="relToField" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600"></select>
+              </div>
+              <div class="space-y-1">
+                <div class="text-slate-300">On delete</div>
+                <select id="relOnDelete" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600">
+                  <option value="no_action">NO ACTION</option>
+                  <option value="cascade">CASCADE</option>
+                  <option value="set_null">SET NULL</option>
+                </select>
+              </div>
+              <div class="flex items-end">
+                <button id="addRelationBtn" class="w-full px-2 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-[11px]">Add relation</button>
+              </div>
+            </div>
+
+            <div class="pt-2 space-y-2">
+              <div class="font-semibold text-slate-100">Selected relation</div>
+              <div class="grid grid-cols-2 gap-2 text-[11px]">
+                <div class="space-y-1">
+                  <div class="text-slate-300">Source label</div>
+                  <input id="relSourceLabel" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800">
+                </div>
+                <div class="space-y-1">
+                  <div class="text-slate-300">Target label</div>
+                  <input id="relTargetLabel" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800">
+                </div>
+                <div class="space-y-1">
+                  <div class="text-slate-300">Center label</div>
+                  <input id="relCenterLabel" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800">
+                </div>
+              <div class="space-y-1">
+                <div class="text-slate-300">Style</div>
+                <select id="relStyle" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800">
+                  <option value="schema">Schema color</option>
+                  <option value="solid">Solid</option>
+                    <option value="dashed">Dashed</option>
+                    <option value="dotted">Dotted</option>
+                    <option value="gradient">Gradient</option>
+                  </select>
+                </div>
+                <div class="space-y-1">
+                  <div class="text-slate-300">Color A</div>
+                  <input id="relColorA" type="color" class="w-full h-8 rounded-md bg-slate-950 border border-slate-800">
+                </div>
+              <div class="space-y-1">
+                <div class="text-slate-300">Color B</div>
+                <input id="relColorB" type="color" class="w-full h-8 rounded-md bg-slate-950 border border-slate-800">
+              </div>
+              <div class="space-y-1 col-span-2">
+                <div class="text-slate-300">Bend offset</div>
+                <input id="relBend" type="range" min="-200" max="200" step="5" class="w-full">
+              </div>
+            </div>
+          </div>
+
+            <div id="relationsList" class="mt-2 max-h-32 overflow-y-auto scrollbar-thin space-y-1"></div>
+          </div>
+        </div>
+
+        <div class="accordion" data-section="schemas" data-order="5" data-pinned="false">
+          <div class="accordion-head">
+            <button class="accordion-toggle collapsed" data-target="schemaAccordion">
+              <span>Schemas</span>
+              <span class="accordion-chevron">
+                <svg class="icon-svg" viewBox="0 0 24 24">
+                  <path d="m6 9 6 6 6-6"></path>
+                </svg>
+              </span>
+            </button>
+            <div class="accordion-actions">
+              <button class="accordion-pin" title="Pin section">
+                <svg class="icon-svg" viewBox="0 0 24 24">
+                  <path d="M15 4 9 10M14 5l5 5-3 3-5-5m-5 9 2-2m5 2-5-5m-4 8 3-3"></path>
+                </svg>
+              </button>
+              <button class="accordion-handle" title="Drag (right-click hold) to reorder">
+                <svg class="icon-svg" viewBox="0 0 24 24">
+                  <path d="M9 7h.01M12 7h.01M15 7h.01M9 12h.01M12 12h.01M15 12h.01M9 17h.01M12 17h.01M15 17h.01"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div id="schemaAccordion" class="accordion-body collapsed space-y-2">
+            <div class="flex items-center justify-between">
+              <div class="font-semibold text-slate-100">Schemas</div>
+              <button id="addSchemaBtn" class="px-2 py-1 rounded-md bg-slate-900 hover:bg-slate-800 text-[11px]">Add schema</button>
+            </div>
+            <select id="schemaList" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-sky-600"></select>
+            <div class="grid grid-cols-2 gap-2 text-[11px]">
+              <div class="space-y-1">
+                <div class="text-slate-300">Name</div>
+                <input id="schemaName" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800">
+              </div>
+              <div class="space-y-1">
+                <div class="text-slate-300">Persian name</div>
+                <input id="schemaFaName" class="w-full px-2 py-1.5 rounded-md bg-slate-950 border border-slate-800">
+              </div>
+              <div class="space-y-1">
+                <div class="text-slate-300">Color A</div>
+                <input id="schemaColorA" type="color" class="w-full h-8 rounded-md bg-slate-950 border border-slate-800">
+              </div>
+              <div class="space-y-1">
+                <div class="text-slate-300">Color B</div>
+                <input id="schemaColorB" type="color" class="w-full h-8 rounded-md bg-slate-950 border border-slate-800">
+              </div>
+            </div>
+            <div class="flex items-center justify-between">
+              <button id="saveSchemaBtn" class="px-3 py-1.5 rounded-md bg-sky-600 hover:bg-sky-500 text-[11px]">Save schema</button>
+              <button id="deleteSchemaBtn" class="px-3 py-1.5 rounded-md border border-red-600 text-red-300 text-[11px] hover:bg-red-950">Delete schema</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="accordion" data-section="appearance" data-order="6" data-pinned="false">
+          <div class="accordion-head">
+            <button class="accordion-toggle collapsed" data-target="appearanceAccordion">
+              <span>Appearance</span>
+              <span class="accordion-chevron">
+                <svg class="icon-svg" viewBox="0 0 24 24">
+                  <path d="m6 9 6 6 6-6"></path>
+                </svg>
+              </span>
+            </button>
+            <div class="accordion-actions">
+              <button class="accordion-pin" title="Pin section">
+                <svg class="icon-svg" viewBox="0 0 24 24">
+                  <path d="M15 4 9 10M14 5l5 5-3 3-5-5m-5 9 2-2m5 2-5-5m-4 8 3-3"></path>
+                </svg>
+              </button>
+              <button class="accordion-handle" title="Drag (hold) to reorder">
+                <svg class="icon-svg" viewBox="0 0 24 24">
+                  <path d="M9 7h.01M12 7h.01M15 7h.01M9 12h.01M12 12h.01M15 12h.01M9 17h.01M12 17h.01M15 17h.01"></path>
+                </svg>
+              </button>
+            </div>
+            </div>
+            <div id="appearanceAccordion" class="accordion-body collapsed space-y-2">
+              <div class="grid grid-cols-2 gap-3 text-[11px]">
+                <div class="space-y-1">
+                  <div class="text-slate-300">Background A</div>
+                  <input id="colorBgA" type="color" class="w-full h-9 rounded-md bg-slate-950 border border-slate-800">
+                </div>
+                <div class="space-y-1">
+                  <div class="text-slate-300">Background B</div>
+                  <input id="colorBgB" type="color" class="w-full h-9 rounded-md bg-slate-950 border border-slate-800">
+                </div>
+                <div class="space-y-1">
+                  <div class="text-slate-300">Header A</div>
+                  <input id="colorHeaderA" type="color" class="w-full h-9 rounded-md bg-slate-950 border border-slate-800">
+                </div>
+                <div class="space-y-1">
+                  <div class="text-slate-300">Header B</div>
+                  <input id="colorHeaderB" type="color" class="w-full h-9 rounded-md bg-slate-950 border border-slate-800">
+                </div>
+                <div class="space-y-1">
+                  <div class="text-slate-300">Panel A</div>
+                  <input id="colorPanelA" type="color" class="w-full h-9 rounded-md bg-slate-950 border border-slate-800">
+                </div>
+                <div class="space-y-1">
+                  <div class="text-slate-300">Panel B</div>
+                  <input id="colorPanelB" type="color" class="w-full h-9 rounded-md bg-slate-950 border border-slate-800">
+                </div>
+                <div class="space-y-1">
+                  <div class="text-slate-300">Text color</div>
+                  <input id="colorText" type="color" class="w-full h-9 rounded-md bg-slate-950 border border-slate-800">
+                </div>
+              </div>
+            <div class="flex items-center gap-2">
+              <button id="applyThemeBtn" class="px-3 py-1.5 rounded-md bg-sky-600 hover:bg-sky-500 text-[11px]">Apply colors</button>
+              <button id="resetThemeBtn" class="px-3 py-1.5 rounded-md border border-slate-700 text-[11px] hover:bg-slate-900">Reset</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+<script src="assets/js/app.js"></script>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
