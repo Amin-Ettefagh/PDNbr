@@ -24,11 +24,12 @@ def normalize_numeric(v):
 
 
 class ConfigDataLoader:
-    def __init__(self, batch_size=1_000_000, max_params=2000):
+    def __init__(self, batch_size=1_000_000, max_params=2000, separator=","):
         self.cfg = CONFIG
         self.engine = None
         self.batch_size = batch_size
         self.max_params = max_params
+        self.separator = separator or ","
 
     def build_engine_with_retry(self, max_retries=5, delay_seconds=2):
         driver = self.cfg["pyodbc_driver"]
@@ -43,7 +44,7 @@ class ConfigDataLoader:
             conn_str = f"Driver={driver};Server={server};Database={database};UID={username};PWD={password};"
         from urllib.parse import quote_plus
         url = "mssql+pyodbc:///?odbc_connect=" + quote_plus(conn_str)
-        for i in range(max_retries):
+        for _ in range(max_retries):
             try:
                 self.engine = create_engine(url, fast_executemany=True)
                 with self.engine.connect() as c:
@@ -72,14 +73,19 @@ class ConfigDataLoader:
                     return pd.read_excel(bio, sheet_name=sheet if sheet else 0, engine="openpyxl")
             except Exception:
                 continue
-        display(Markdown(f"### ❌ Wrong password for `{file_path}`, skipped"))
         return None
 
     def read_csv(self, file_path):
         encs = self.cfg.get("encoding") or ["utf-8"]
         for e in encs:
             try:
-                return pd.read_csv(file_path, encoding=e)
+                return pd.read_csv(
+                    file_path,
+                    encoding=e,
+                    sep=self.separator,
+                    engine="python",
+                    on_bad_lines="skip"
+                )
             except Exception:
                 continue
         return None
@@ -88,10 +94,13 @@ class ConfigDataLoader:
         encs = self.cfg.get("encoding") or ["utf-8"]
         for e in encs:
             try:
-                with open(file_path, "r", encoding=e, errors="strict") as f:
-                    sample = f.read(2048)
-                delim = "," if sample.count(",") >= sample.count("\t") else "\t"
-                return pd.read_csv(file_path, delimiter=delim, encoding=e)
+                return pd.read_csv(
+                    file_path,
+                    encoding=e,
+                    sep=self.separator,
+                    engine="python",
+                    on_bad_lines="skip"
+                )
             except Exception:
                 continue
         return None
@@ -143,15 +152,29 @@ class ConfigDataLoader:
         return res
 
     def safe_insert(self, df, table_name, schema):
+        meta = self.cfg["tables"][table_name]["fields"]
+        limits = {}
+        for f in meta:
+            t = f["type"].upper()
+            if t.startswith("NVARCHAR(") and "MAX" not in t:
+                limits[f["db"]] = int(t[t.find("(") + 1:t.find(")")])
+
+        for col, lim in limits.items():
+            if col in df:
+                df = df[df[col].astype(str).str.len() <= lim]
+
+        if df.empty:
+            return
+
         cols = len(df.columns)
         safe_rows = max(1, self.max_params // cols)
         total = len(df)
         parts = math.ceil(total / safe_rows)
+
         for i in range(parts):
             s = i * safe_rows
             e = min(s + safe_rows, total)
-            sub = df.iloc[s:e]
-            sub.to_sql(
+            df.iloc[s:e].to_sql(
                 name=table_name,
                 con=self.engine,
                 schema=schema,
@@ -167,22 +190,22 @@ class ConfigDataLoader:
             fp = tdef["input"]["file"]
             sheet = tdef["input"]["sheet"]
             schema = tdef.get("schema")
-            display(Markdown(f"## ▶️ {table_name}"))
             if not os.path.exists(fp):
-                display(Markdown("File not found"))
                 continue
             df_raw = self.read_file(fp, sheet)
             if df_raw is None:
                 continue
             df = self.build_df(df_raw, tdef)
-            n = len(df)
-            if n == 0:
-                display(Markdown("No data"))
+            if df.empty:
                 continue
             batches = self.split_batches(df)
-            with tqdm(total=len(batches), desc=f"{os.path.basename(fp)} → {table_name}", ncols=100) as pb:
-                for b in batches:
-                    self.safe_insert(b, table_name, schema)
-                    pb.update(1)
-            display(Markdown(f"### ✅ Inserted {n} rows"))
+            for b in batches:
+                self.safe_insert(b, table_name, schema)
         display(Markdown("# 🎉 Completed"))
+
+
+
+
+
+loader = ConfigDataLoader(separator="|")
+loader.load_all()
