@@ -1,0 +1,15 @@
+Root/
+│
+├─ python/
+│   └─ python.exe
+│
+├─ Libs/
+│   └─ tkinterdnd2/
+│
+├─ Config.py
+├─ Code.py
+├─ run.bat
+│
+└─ Files/
+    ├─ GitHub/
+    └─ Others/

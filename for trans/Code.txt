@@ -1,0 +1,118 @@
+import sys
+import os
+import time
+import json
+import threading
+import urllib.request
+import shutil
+from Config import CONFIG
+
+BASE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(BASE, "Libs"))
+
+from tkinterdnd2 import TkinterDnD, DND_FILES
+import tkinter as tk
+
+FILES = os.path.join(BASE, "Files")
+GITHUB_DIR = os.path.join(FILES, "GitHub")
+OTHERS_DIR = os.path.join(FILES, "Others")
+
+os.makedirs(GITHUB_DIR, exist_ok=True)
+os.makedirs(OTHERS_DIR, exist_ok=True)
+
+class GitHubSync:
+    def __init__(self):
+        self.repo = CONFIG["repo"]
+        self.branch = CONFIG["branch"]
+        self.interval = CONFIG["interval"]
+        self.api = self.repo.replace("https://github.com", "https://api.github.com/repos")
+        self.state = os.path.join(GITHUB_DIR, ".state.json")
+
+    def start(self):
+        while True:
+            self.sync()
+            time.sleep(self.interval)
+
+    def sync(self):
+        tree = self.tree()
+        old = self.load()
+        new = {}
+        for path, sha, url in tree:
+            new[path] = sha
+            target = os.path.join(GITHUB_DIR, path)
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            if old.get(path) != sha:
+                with open(target, "wb") as f:
+                    f.write(self.get(url))
+        for path in old:
+            if path not in new:
+                f = os.path.join(GITHUB_DIR, path)
+                if os.path.exists(f):
+                    os.remove(f)
+        self.save(new)
+
+    def tree(self):
+        url = f"{self.api}/git/trees/{self.branch}?recursive=1"
+        data = json.loads(self.get(url))
+        return [(i["path"], i["sha"], i["url"]) for i in data["tree"] if i["type"] == "blob"]
+
+    def get(self, url):
+        r = urllib.request.Request(url, headers={"User-Agent": "Python"})
+        return urllib.request.urlopen(r).read()
+
+    def load(self):
+        if not os.path.exists(self.state):
+            return {}
+        return json.load(open(self.state, "r"))
+
+    def save(self, data):
+        json.dump(data, open(self.state, "w"))
+
+class Wizard(TkinterDnD.Tk):
+    def __init__(self):
+        super().__init__()
+        self.overrideredirect(True)
+        self.attributes("-topmost", True)
+        self.geometry("260x90+40+40")
+        self.configure(bg="#1e1e1e")
+        self.ui()
+        self.move()
+
+    def ui(self):
+        self.box = tk.Label(
+            self,
+            text="Drop files here\n(Copy only)",
+            bg="#1e1e1e",
+            fg="white",
+            font=("Segoe UI", 10),
+            justify="center"
+        )
+        self.box.pack(expand=True, fill="both")
+        self.box.drop_target_register(DND_FILES)
+        self.box.dnd_bind("<<Drop>>", self.drop)
+
+    def drop(self, e):
+        files = self.tk.splitlist(e.data)
+        for f in files:
+            if os.path.isfile(f):
+                name = os.path.basename(f)
+                target = os.path.join(OTHERS_DIR, name)
+                shutil.copy2(f, target)
+
+    def move(self):
+        def s(e):
+            self.x = e.x
+            self.y = e.y
+        def m(e):
+            self.geometry(f"+{e.x_root-self.x}+{e.y_root-self.y}")
+        self.bind("<Button-1>", s)
+        self.bind("<B1-Motion>", m)
+
+class App:
+    def run(self):
+        t = threading.Thread(target=GitHubSync().start, daemon=True)
+        t.start()
+        Wizard().mainloop()
+
+if __name__ == "__main__":
+    App().run()

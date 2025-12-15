@@ -1,0 +1,5 @@
+CONFIG = {
+    "repo": "https://github.com/Amin-Ettefagh/PDNbr",
+    "branch": "master",
+    "interval": 300
+}
