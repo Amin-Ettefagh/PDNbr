@@ -1,55 +1,35 @@
 import os
 import json
 import warnings
-import datetime as dt
 import pandas as pd
 from tqdm import tqdm
 
 
 class FileStructureExtractor:
-    def __init__(self, paths, copy_file_to_db_name=False):
+    def __init__(self, paths, delimiter=",", copy_file_to_db_name=False):
         self.paths = paths if isinstance(paths, list) else [paths]
+        self.delimiter = delimiter
         self.copy_file_to_db_name = copy_file_to_db_name
         self.tables = {}
         warnings.filterwarnings("ignore", category=UserWarning)
 
     def detect_type(self, series):
-        s = series.dropna()
+        s = series.dropna().astype(str)
         if s.empty:
             return "NVARCHAR(25)"
-        s_str = s.astype(str)
 
-        num = pd.to_numeric(s_str, errors="coerce")
-        num_non_null = num.dropna()
-        if not num_non_null.empty and len(num_non_null) / len(s_str) >= 0.8:
-            if ((num_non_null % 1) == 0).all():
-                max_val = num_non_null.abs().max()
-                try:
-                    max_val_float = float(max_val)
-                except Exception:
-                    max_val_float = None
-                if max_val_float is not None:
-                    if max_val_float <= 32767:
-                        return "SMALLINT"
-                    elif max_val_float <= 2147483647:
-                        return "INT"
-                    elif max_val_float <= 9223372036854775807:
-                        return "BIGINT"
-                    else:
-                        return "DECIMAL(38,0)"
-                return "DECIMAL(38,0)"
-            return "DECIMAL(18,4)"
+        is_numeric = s.str.isdigit()
+        no_leading_zero = ~s.str.startswith("0") | (s == "0")
 
-        dt_parsed = pd.to_datetime(s_str, errors="coerce", infer_datetime_format=True)
-        dt_non_null = dt_parsed.dropna()
-        if not dt_non_null.empty and len(dt_non_null) / len(s_str) >= 0.8:
-            times = dt_non_null.dt.time
-            if all(t == dt.time(0, 0) for t in times):
-                return "DATE"
-            return "DATETIME2(0)"
+        if is_numeric.all() and no_leading_zero.all():
+            max_len = s.str.len().max()
+            if max_len <= 9:
+                return "INT"
+            return "BIGINT"
 
-        lengths = s_str.str.len()
+        lengths = s.str.len()
         max_len = int(lengths.max())
+
         if max_len <= 25:
             return "NVARCHAR(25)"
         if max_len <= 50:
@@ -60,18 +40,23 @@ class FileStructureExtractor:
             return "NVARCHAR(100)"
         if max_len <= 200:
             return "NVARCHAR(200)"
-        if max_len <= 300:
-            return "NVARCHAR(300)"
         return "NVARCHAR(MAX)"
 
-    def process_txt(self, path):
-        with open(path, "r", encoding="utf-8", errors="ignore") as f:
-            sample = f.read(2048)
-        delimiter = "," if sample.count(",") >= sample.count("\t") else "\t"
-        return pd.read_csv(path, delimiter=delimiter)
-
     def process_csv(self, path):
-        return pd.read_csv(path)
+        return pd.read_csv(
+            path,
+            sep=self.delimiter,
+            engine="python",
+            on_bad_lines="skip"
+        )
+
+    def process_txt(self, path):
+        return pd.read_csv(
+            path,
+            sep=self.delimiter,
+            engine="python",
+            on_bad_lines="skip"
+        )
 
     def process_excel(self, path):
         xls = pd.ExcelFile(path)
@@ -87,23 +72,25 @@ class FileStructureExtractor:
         return base
 
     def normalize_columns(self, df):
-        new_cols = []
+        cols = []
         for i, c in enumerate(df.columns):
-            if isinstance(c, str) and c.strip() != "":
-                new_cols.append(c)
+            if isinstance(c, str) and c.strip():
+                cols.append(c)
             else:
-                new_cols.append(f"Col_{i+1}")
-        df.columns = new_cols
+                cols.append(f"Col_{i+1}")
+        df.columns = cols
         return df
 
     def build_fields_with_progress(self, df, desc):
         fields = []
-        cols = list(df.columns)
-        with tqdm(total=len(cols), desc=desc, ncols=100, leave=True) as pbar:
-            for col in cols:
+        with tqdm(total=len(df.columns), desc=desc, ncols=100) as pbar:
+            for col in df.columns:
                 t = self.detect_type(df[col])
-                db_name = col if self.copy_file_to_db_name else ""
-                fields.append({"file": col, "db": db_name, "type": t})
+                fields.append({
+                    "file": col,
+                    "db": col if self.copy_file_to_db_name else "",
+                    "type": t
+                })
                 pbar.update(1)
         return fields
 
@@ -132,7 +119,7 @@ class FileStructureExtractor:
                 self.tables[table_name] = {
                     "schema": "",
                     "collation": "SQL_Latin1_General_CP1256_CI_AS",
-                    "input": {"file": path, "sheet": None},
+                    "input": {"file": path, "sheet": "null"},
                     "fields": fields
                 }
 
@@ -144,22 +131,26 @@ class FileStructureExtractor:
                 self.tables[table_name] = {
                     "schema": "",
                     "collation": "SQL_Latin1_General_CP1256_CI_AS",
-                    "input": {"file": path, "sheet": None},
+                    "input": {"file": path, "sheet": "null"},
                     "fields": fields
                 }
 
         if os.path.exists(output_path):
             os.remove(output_path)
+
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump({"tables": self.tables}, f, ensure_ascii=False, indent=4)
 
 
+extractor = FileStructureExtractor(
+    paths=[
+        r"D:\Data\Users.csv",
+        r"D:\Data\Orders.txt",
+        r"D:\Data\Products.xlsx"
+    ],
+    delimiter=",",
+    copy_file_to_db_name=True
+)
 
-
-# extractor = FileStructureExtractor(
-#     paths=[r"D:\Data\Users.xlsx"],
-#     copy_file_to_db_name=True
-# )
-
-# extractor.run("C.txt")
+extractor.run(r"D:\Data\schema_output.json")
 
