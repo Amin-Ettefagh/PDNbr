@@ -1,0 +1,627 @@
+import os
+import json
+import warnings
+import pandas as pd
+from tqdm import tqdm
+import re
+
+
+class FileStructureExtractor:
+    def __init__(self, paths, copy_file_to_db_name=False):
+        self.paths = paths
+        self.copy_file_to_db_name = copy_file_to_db_name
+        self.tables = {}
+        warnings.filterwarnings("ignore", category=UserWarning)
+
+        self.encoding_candidates = [
+            ("UTF-8 with BOM", "utf-8-sig"),
+            ("UTF-8", "utf-8"),
+            ("UTF-16", "utf-16"),
+            ("UTF-16LE", "utf-16-le"),
+            ("UTF-16BE", "utf-16-be"),
+            ("UTF-32", "utf-32"),
+            ("UTF-32LE", "utf-32-le"),
+            ("UTF-32BE", "utf-32-be"),
+            ("ASCII", "ascii"),
+            ("Extended ASCII", "latin-1"),
+            ("Windows-1256", "cp1256"),
+            ("Windows-1252", "cp1252"),
+            ("ISO-8859-1", "iso-8859-1"),
+            ("ISO-8859-6", "iso-8859-6"),
+            ("ISO-8859-15", "iso-8859-15"),
+            ("Unicode", "utf-16"),
+            ("Unicode Big Endian", "utf-16-be"),
+            ("Unicode Little Endian", "utf-16-le"),
+        ]
+
+    def detect_encoding(self, path, sample_size=262144):
+        try:
+            with open(path, "rb") as f:
+                raw = f.read(sample_size)
+        except Exception:
+            return "null", None
+
+        if raw.startswith(b"\xef\xbb\xbf"):
+            return "UTF-8 with BOM", "utf-8-sig"
+        if raw.startswith(b"\xff\xfe\x00\x00"):
+            return "UTF-32LE", "utf-32-le"
+        if raw.startswith(b"\x00\x00\xfe\xff"):
+            return "UTF-32BE", "utf-32-be"
+        if raw.startswith(b"\xff\xfe"):
+            return "UTF-16LE", "utf-16-le"
+        if raw.startswith(b"\xfe\xff"):
+            return "UTF-16BE", "utf-16-be"
+
+        best_name = "null"
+        best_codec = None
+        best_score = -1
+
+        for name, codec in self.encoding_candidates:
+            try:
+                text = raw.decode(codec, errors="strict")
+            except Exception:
+                continue
+
+            ctrl = sum(1 for ch in text if ord(ch) < 9 or (13 < ord(ch) < 32))
+            rep = text.count("\ufffd")
+            printable = sum(1 for ch in text if ch.isprintable() or ch in "\r\n\t")
+            score = printable - ctrl * 50 - rep * 200
+
+            if score > best_score:
+                best_score = score
+                best_name = name
+                best_codec = codec
+
+        return best_name, best_codec
+
+    def normalize_dataframe(self, df):
+        col_count = len(df.columns)
+        rows = []
+        for row in df.itertuples(index=False):
+            row = list(row)
+            if len(row) < col_count:
+                row += ["null"] * (col_count - len(row))
+            if len(row) > col_count:
+                row = row[:col_count]
+            rows.append(row)
+        return pd.DataFrame(rows, columns=df.columns)
+
+    def normalize_columns(self, df):
+        df.columns = [c if isinstance(c, str) and c.strip() else f"Col_{i+1}" for i, c in enumerate(df.columns)]
+        return df
+
+    def nvarchar_size(self, max_len):
+        if max_len < 25:
+            return "NVARCHAR(25)"
+        if max_len < 50:
+            return "NVARCHAR(50)"
+        if max_len < 75:
+            return "NVARCHAR(75)"
+        if max_len < 100:
+            return "NVARCHAR(100)"
+        if max_len < 200:
+            return "NVARCHAR(200)"
+        return "NVARCHAR(MAX)"
+
+    def detect_type_and_nullable(self, series, row_limit):
+        values = series.astype(str).fillna("null").tolist()
+        values = values if row_limit == "MAX" else values[: int(row_limit)]
+        nullable = "true" if any(v == "null" for v in values) else "false"
+
+        clean = [v for v in values if v != "null"]
+        if not clean:
+            return "NVARCHAR(25)", nullable
+
+        int_pattern = re.compile(r"^[1-9][0-9]*$")
+        max_val = 0
+        max_len = 0
+
+        for v in clean:
+            max_len = max(max_len, len(v))
+            if not int_pattern.match(v):
+                return self.nvarchar_size(max_len), nullable
+            iv = int(v)
+            if iv > max_val:
+                max_val = iv
+
+        if max_val <= 2147483647:
+            return "INT", nullable
+        return "BIGINT", nullable
+
+    def process_csv_txt(self, path, delimiter, encoding):
+        return pd.read_csv(path, delimiter=delimiter, dtype=str, keep_default_na=False, encoding=encoding)
+
+    def process_excel(self, path):
+        xls = pd.ExcelFile(path)
+        return {s: pd.read_excel(path, sheet_name=s, dtype=str) for s in xls.sheet_names}
+
+    def generate_table_name(self, path, sheet=None):
+        base = os.path.splitext(os.path.basename(path))[0]
+        return f"{base}_{sheet}" if sheet else base
+
+    def build_fields(self, df, desc, row_limit):
+        fields = []
+        with tqdm(total=len(df.columns), desc=desc, ncols=100) as pbar:
+            for col in df.columns:
+                t, nullable = self.detect_type_and_nullable(df[col], row_limit)
+                fields.append({
+                    "file": str(col),
+                    "db": str(col) if self.copy_file_to_db_name else "",
+                    "type": str(t),
+                    "nullable": str(nullable)
+                })
+                pbar.update(1)
+        return fields
+
+    def run(self, output_path="C.txt"):
+        for path, cfg in self.paths.items():
+            delimiter = cfg.get("delimiter", ",")
+            row_limit = cfg.get("rows_checked", "MAX")
+            ext = os.path.splitext(path)[1].lower()
+
+            if ext == ".xlsx":
+                sheets = self.process_excel(path)
+                for sheet_name, df in sheets.items():
+                    df = self.normalize_columns(df)
+                    df = self.normalize_dataframe(df)
+                    table_name = self.generate_table_name(path, sheet_name)
+                    self.tables[table_name] = {
+                        "delimiter": "null",
+                        "encoding": "null",
+                        "rows_checked": str(row_limit),
+                        "input": {"file": str(path), "sheet": str(sheet_name)},
+                        "fields": self.build_fields(df, f"{os.path.basename(path)} | {sheet_name}", row_limit)
+                    }
+
+            elif ext in [".csv", ".txt"]:
+                enc_name, enc_codec = self.detect_encoding(path)
+                df = self.process_csv_txt(path, delimiter, enc_codec)
+                df = self.normalize_columns(df)
+                df = self.normalize_dataframe(df)
+                table_name = self.generate_table_name(path)
+                self.tables[table_name] = {
+                    "delimiter": str(delimiter),
+                    "encoding": str(enc_name),
+                    "rows_checked": str(row_limit),
+                    "input": {"file": str(path), "sheet": "null"},
+                    "fields": self.build_fields(df, os.path.basename(path), row_limit)
+                }
+
+        if os.path.exists(output_path):
+            os.remove(output_path)
+
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump({"tables": self.tables}, f, ensure_ascii=False, indent=4)
+
+
+
+
+
+
+
+
+
+paths = {
+    r"D:\Data\Users.xlsx": {},
+    r"D:\Data\data.csv": {
+        "delimiter": "|",
+        "rows_checked": 500
+    },
+    r"D:\Data\logs.txt": {
+        "delimiter": "\t"
+    }
+}
+
+extractor = FileStructureExtractor(paths, copy_file_to_db_name=True)
+extractor.run("C.txt")
+
+
+
+
+
+#########################################################################################################################################################################
+
+
+
+
+import os
+import math
+import time
+import re
+import unicodedata
+from io import BytesIO
+import msoffcrypto
+import pandas as pd
+from tqdm import tqdm
+from sqlalchemy import create_engine, text
+from IPython.display import display, Markdown
+from Config import CONFIG
+
+
+def normalize_numeric(v):
+    if pd.isna(v):
+        return None
+    s = str(v).strip()
+    s = s.replace("۰", "0").replace("۱", "1").replace("۲", "2").replace("۳", "3").replace("۴", "4")
+    s = s.replace("۵", "5").replace("۶", "6").replace("۷", "7").replace("۸", "8").replace("۹", "9")
+    s = s.replace("٠", "0").replace("١", "1").replace("٢", "2").replace("٣", "3").replace("٤", "4")
+    s = s.replace("٥", "5").replace("٦", "6").replace("٧", "7").replace("٨", "8").replace("٩", "9")
+    s = s.replace("٬", ",").replace("٫", ".")
+    s = s.replace("\u200c", "").replace("\u200f", "").replace("\ufeff", "")
+    if s in ["", "-", "—", "_", "null", "NULL"]:
+        return None
+    return s
+
+
+def normalize_text(v):
+    if pd.isna(v):
+        return None
+    s = str(v)
+    s = s.replace("\u200c", "").replace("\u200f", "").replace("\ufeff", "")
+    s = unicodedata.normalize("NFKC", s)
+    s = s.replace("ي", "ی").replace("ك", "ک").replace("ۀ", "ه").replace("ة", "ه").replace("ؤ", "و").replace("إ", "ا").replace("أ", "ا").replace("آ", "ا")
+    s = s.replace("۰", "0").replace("۱", "1").replace("۲", "2").replace("۳", "3").replace("۴", "4")
+    s = s.replace("۵", "5").replace("۶", "6").replace("۷", "7").replace("۸", "8").replace("۹", "9")
+    s = s.replace("٠", "0").replace("١", "1").replace("٢", "2").replace("٣", "3").replace("٤", "4")
+    s = s.replace("٥", "5").replace("٦", "6").replace("٧", "7").replace("٨", "8").replace("٩", "9")
+    s = "".join(ch for ch in s if unicodedata.category(ch)[0] != "C" or ch in "\r\n\t")
+    s = "".join(ch for ch in s if ch.isprintable() or ch in "\r\n\t")
+    s = s.strip()
+    if s == "" or s.lower() == "null":
+        return None
+    return s
+
+
+class ConfigDataLoader:
+    def __init__(self, batch_size=1_000_000, max_params=2000, bad_records_path="bad_records.txt"):
+        self.cfg = CONFIG
+        self.engine = None
+        self.batch_size = batch_size
+        self.max_params = max_params
+        self.bad_records_path = bad_records_path
+
+        self.encoding_candidates = [
+            ("UTF-8 with BOM", "utf-8-sig"),
+            ("UTF-8", "utf-8"),
+            ("UTF-16", "utf-16"),
+            ("UTF-16LE", "utf-16-le"),
+            ("UTF-16BE", "utf-16-be"),
+            ("UTF-32", "utf-32"),
+            ("UTF-32LE", "utf-32-le"),
+            ("UTF-32BE", "utf-32-be"),
+            ("ASCII", "ascii"),
+            ("Extended ASCII", "latin-1"),
+            ("Windows-1256", "cp1256"),
+            ("Windows-1252", "cp1252"),
+            ("ISO-8859-1", "iso-8859-1"),
+            ("ISO-8859-6", "iso-8859-6"),
+            ("ISO-8859-15", "iso-8859-15"),
+            ("Unicode", "utf-16"),
+            ("Unicode Big Endian", "utf-16-be"),
+            ("Unicode Little Endian", "utf-16-le"),
+        ]
+
+    def build_engine_with_retry(self, max_retries=5, delay_seconds=2):
+        driver = self.cfg["pyodbc_driver"]
+        server = self.cfg["server_ip"]
+        database = self.cfg["database_name"]
+        username = self.cfg["username"]
+        password = self.cfg["password"]
+        auth = self.cfg["auth_method"]
+        if auth == "WinAuth":
+            conn_str = f"Driver={driver};Server={server};Database={database};Trusted_Connection=yes;"
+        else:
+            conn_str = f"Driver={driver};Server={server};Database={database};UID={username};PWD={password};"
+        from urllib.parse import quote_plus
+        url = "mssql+pyodbc:///?odbc_connect=" + quote_plus(conn_str)
+        for _ in range(max_retries):
+            try:
+                self.engine = create_engine(url, fast_executemany=True)
+                with self.engine.connect() as c:
+                    c.execute(text("SELECT 1"))
+                display(Markdown("### ✅ Connection successful"))
+                return True
+            except Exception:
+                time.sleep(delay_seconds)
+        display(Markdown("### ❌ Failed to connect"))
+        return False
+
+    def append_bad_record(self, file_path, table_name, reason, raw_line):
+        try:
+            os.makedirs(os.path.dirname(self.bad_records_path), exist_ok=True) if os.path.dirname(self.bad_records_path) else None
+        except Exception:
+            pass
+        line = str(raw_line)
+        with open(self.bad_records_path, "a", encoding="utf-8") as f:
+            f.write(f"{file_path}\t{table_name}\t{reason}\t{line}\n")
+
+    def detect_encoding(self, path, sample_size=262144):
+        cfg_encs = self.cfg.get("encoding") or []
+        cfg_map = {e: e for e in cfg_encs if isinstance(e, str) and e.strip()}
+        name_by_codec = {codec: name for name, codec in self.encoding_candidates}
+        try:
+            with open(path, "rb") as f:
+                raw = f.read(sample_size)
+        except Exception:
+            return []
+
+        if raw.startswith(b"\xef\xbb\xbf"):
+            return [("UTF-8 with BOM", "utf-8-sig")]
+        if raw.startswith(b"\xff\xfe\x00\x00"):
+            return [("UTF-32LE", "utf-32-le")]
+        if raw.startswith(b"\x00\x00\xfe\xff"):
+            return [("UTF-32BE", "utf-32-be")]
+        if raw.startswith(b"\xff\xfe"):
+            return [("UTF-16LE", "utf-16-le")]
+        if raw.startswith(b"\xfe\xff"):
+            return [("UTF-16BE", "utf-16-be")]
+
+        ordered = []
+        for e in cfg_map.keys():
+            codec = e
+            if codec in name_by_codec:
+                ordered.append((name_by_codec[codec], codec))
+            else:
+                ordered.append((e, e))
+
+        for name, codec in self.encoding_candidates:
+            if (name, codec) not in ordered:
+                ordered.append((name, codec))
+
+        viable = []
+        for name, codec in ordered:
+            try:
+                raw.decode(codec, errors="strict")
+                viable.append((name, codec))
+            except Exception:
+                continue
+
+        return viable
+
+    def decrypt_excel(self, file_path, sheet, passwords):
+        with open(file_path, "rb") as f:
+            of = msoffcrypto.OfficeFile(f)
+            if not of.is_encrypted():
+                return pd.read_excel(file_path, sheet_name=sheet if sheet else 0, engine="openpyxl", dtype=str)
+
+        for pwd in passwords:
+            try:
+                with open(file_path, "rb") as f:
+                    of = msoffcrypto.OfficeFile(f)
+                    of.load_key(password=pwd)
+                    bio = BytesIO()
+                    of.decrypt(bio)
+                    bio.seek(0)
+                    return pd.read_excel(bio, sheet_name=sheet if sheet else 0, engine="openpyxl", dtype=str)
+            except Exception:
+                continue
+
+        display(Markdown(f"### ❌ Wrong password for `{file_path}`, skipped"))
+        return None
+
+    def get_table_passwords(self, tdef):
+        pw = []
+        if isinstance(tdef.get("password"), list):
+            pw.extend([p for p in tdef.get("password") if p is not None])
+        elif isinstance(tdef.get("password"), str) and tdef.get("password").strip():
+            pw.append(tdef.get("password").strip())
+        if isinstance(self.cfg.get("file_password"), list):
+            pw.extend([p for p in self.cfg.get("file_password") if p is not None])
+        seen = set()
+        out = []
+        for p in pw:
+            ps = str(p)
+            if ps not in seen:
+                seen.add(ps)
+                out.append(ps)
+        return out
+
+    def parse_nvarchar_len(self, t):
+        m = re.match(r"^\s*NVARCHAR\s*\(\s*(MAX|\d+)\s*\)\s*$", str(t).strip(), flags=re.I)
+        if not m:
+            return None
+        v = m.group(1)
+        if str(v).upper() == "MAX":
+            return None
+        try:
+            return int(v)
+        except Exception:
+            return None
+
+    def cast_and_trim_series(self, s, t):
+        tt = str(t).strip().upper()
+        if tt in ("INT", "BIGINT", "SMALLINT"):
+            return s.apply(lambda x: pd.to_numeric(normalize_numeric(x), errors="coerce")).astype("Int64")
+        if tt.startswith("NVARCHAR"):
+            max_len = self.parse_nvarchar_len(tt)
+            def f(x):
+                v = normalize_text(x)
+                if v is None:
+                    return None
+                if max_len is not None and len(v) > max_len:
+                    return v[:max_len]
+                return v
+            return s.astype(object).apply(f)
+        return s.astype(object).apply(lambda x: normalize_text(x))
+
+    def build_df(self, df, table):
+        out = {}
+        for f in table["fields"]:
+            src = f.get("file")
+            dst = f.get("db")
+            t = f.get("type")
+            if dst:
+                if src in df.columns:
+                    out[dst] = self.cast_and_trim_series(df[src], t)
+                else:
+                    out[dst] = pd.Series([None] * len(df), dtype="object")
+        return pd.DataFrame(out)
+
+    def split_batches_df(self, df):
+        total = len(df)
+        if total <= self.batch_size:
+            return [df]
+        res = []
+        c = math.ceil(total / self.batch_size)
+        for i in range(c):
+            s = i * self.batch_size
+            e = min(s + self.batch_size, total)
+            res.append(df.iloc[s:e])
+        return res
+
+    def safe_insert(self, df, table_name, schema):
+        if df is None or len(df) == 0:
+            return
+        cols = len(df.columns)
+        safe_rows = max(1, self.max_params // max(1, cols))
+        total = len(df)
+        parts = math.ceil(total / safe_rows)
+        for i in range(parts):
+            s = i * safe_rows
+            e = min(s + safe_rows, total)
+            sub = df.iloc[s:e]
+            sub.to_sql(name=table_name, con=self.engine, schema=schema, if_exists="append", index=False, method=None)
+
+    def infer_delimiter(self, file_path, encoding_codec):
+        try:
+            with open(file_path, "r", encoding=encoding_codec, errors="strict") as f:
+                sample = f.read(4096)
+            return "," if sample.count(",") >= sample.count("\t") else "\t"
+        except Exception:
+            return ","
+
+    def iter_csv_txt_batches(self, file_path, table_name, tdef, encoding_codec, encoding_name):
+        expected_cols = [f.get("file") for f in tdef.get("fields", []) if f.get("file")]
+        if not expected_cols:
+            return
+        ext = os.path.splitext(file_path)[1].lower()
+        delimiter = tdef.get("delimiter")
+        if delimiter in [None, "", "null", "NULL"]:
+            delimiter = self.infer_delimiter(file_path, encoding_codec) if ext == ".txt" else ","
+
+        expected_n = len(expected_cols)
+
+        def bad_line_handler(fields):
+            try:
+                got_n = len(fields)
+            except Exception:
+                got_n = None
+            raw_line = delimiter.join([str(x) for x in fields]) if isinstance(fields, list) else str(fields)
+            if got_n is not None and got_n != expected_n:
+                reason = "LESS_FIELDS" if got_n < expected_n else "MORE_FIELDS"
+                self.append_bad_record(file_path, table_name, reason, raw_line)
+            if not isinstance(fields, list):
+                return None
+            if len(fields) < expected_n:
+                return fields + ["null"] * (expected_n - len(fields))
+            if len(fields) > expected_n:
+                return fields[:expected_n]
+            return fields
+
+        it = pd.read_csv(
+            file_path,
+            delimiter=delimiter,
+            dtype=str,
+            keep_default_na=False,
+            encoding=encoding_codec,
+            engine="python",
+            chunksize=self.batch_size,
+            on_bad_lines=bad_line_handler
+        )
+
+        for chunk in it:
+            if list(chunk.columns) != expected_cols:
+                chunk = chunk.reindex(columns=expected_cols)
+            chunk = chunk.fillna("null")
+            yield chunk, delimiter, encoding_name
+
+    def load_all(self):
+        if os.path.exists(self.bad_records_path):
+            try:
+                os.remove(self.bad_records_path)
+            except Exception:
+                pass
+
+        if not self.build_engine_with_retry():
+            return
+
+        for table_name, tdef in self.cfg["tables"].items():
+            fp = tdef["input"]["file"]
+            sheet = tdef["input"]["sheet"]
+            schema = tdef.get("schema")
+            display(Markdown(f"## ▶️ {table_name}"))
+            if not os.path.exists(fp):
+                display(Markdown("File not found"))
+                continue
+
+            ext = os.path.splitext(fp)[1].lower()
+
+            if ext in [".xlsx", ".xls", ".xlsm", ".xlsb"]:
+                passwords = self.get_table_passwords(tdef)
+                df_raw = self.decrypt_excel(fp, sheet, passwords)
+                if df_raw is None:
+                    continue
+                df_raw = df_raw.astype(str).where(~df_raw.isna(), "null")
+                df = self.build_df(df_raw, tdef)
+                n = len(df)
+                if n == 0:
+                    display(Markdown("No data"))
+                    continue
+                batches = self.split_batches_df(df)
+                with tqdm(total=len(batches), desc=f"{os.path.basename(fp)} → {table_name}", ncols=100) as pb:
+                    for b in batches:
+                        self.safe_insert(b, table_name, schema)
+                        pb.update(1)
+                display(Markdown(f"### ✅ Inserted {n} rows"))
+                continue
+
+            if ext not in [".csv", ".txt"]:
+                display(Markdown("Unsupported file type"))
+                continue
+
+            enc_list = self.detect_encoding(fp)
+            if not enc_list:
+                display(Markdown(f"### ❌ Cannot detect encoding for `{fp}`"))
+                continue
+
+            inserted_total = 0
+            encoding_ok = False
+
+            for enc_name, enc_codec in enc_list:
+                try:
+                    batch_iter = self.iter_csv_txt_batches(fp, table_name, tdef, enc_codec, enc_name)
+                    first = True
+                    used_delim = None
+                    with tqdm(desc=f"{os.path.basename(fp)} → {table_name} [{enc_name}]", ncols=100) as pb:
+                        for chunk_raw, delim, _ in batch_iter:
+                            used_delim = delim
+                            if first:
+                                encoding_ok = True
+                                first = False
+                            df = self.build_df(chunk_raw, tdef)
+                            self.safe_insert(df, table_name, schema)
+                            inserted_total += len(df)
+                            pb.update(1)
+                    display(Markdown(f"### ✅ Inserted {inserted_total} rows | encoding=`{enc_name}` | delimiter=`{used_delim}`"))
+                    break
+                except UnicodeDecodeError:
+                    display(Markdown(f"### ⚠️ Encoding failed: `{enc_name}` for `{fp}`"))
+                    continue
+                except Exception as ex:
+                    display(Markdown(f"### ⚠️ Failed with encoding `{enc_name}`: {str(ex)}"))
+                    continue
+
+            if not encoding_ok:
+                display(Markdown(f"### ❌ All encodings failed for `{fp}`"))
+                continue
+
+        display(Markdown("### ✅ Completed"))
+
+
+
+loader = ConfigDataLoader(
+    batch_size=200000,
+    max_params=2000,
+    bad_records_path=r"D:\Data\bad_records.txt"
+)
+loader.load_all()
