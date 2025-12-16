@@ -1,9 +1,6 @@
 import json
-from sqlalchemy import create_engine, MetaData, Table, Column, text, BigInteger
-from sqlalchemy.types import (
-    Integer, SmallInteger, BigInteger, String,
-    Date, DateTime, Numeric
-)
+from sqlalchemy import create_engine, MetaData, Table, Column, text
+from sqlalchemy.types import Integer, BigInteger, NVARCHAR
 from sqlalchemy.exc import SQLAlchemyError
 from IPython.display import display, Markdown
 from Config import CONFIG
@@ -51,47 +48,50 @@ class DatabaseBuilder:
             display(Markdown(f"### ❌ Connection failed:\n```\n{str(e)}\n```"))
             raise e
 
-    def map_type(self, t):
-        t = t.upper()
-        if t == "DATE":
-            return Date()
-        if t.startswith("DATETIME"):
-            return DateTime()
-        if t == "SMALLINT":
-            return SmallInteger()
+    # =========================
+    # ONLY ALLOWED TYPES
+    # INT | BIGINT | NVARCHAR
+    # =========================
+    def map_type(self, t: str):
+        t = t.upper().strip()
+
         if t == "INT":
             return Integer()
+
         if t == "BIGINT":
             return BigInteger()
-        if t.startswith("DECIMAL"):
-            inside = t[t.find("(") + 1 : t.find(")")]
-            p, s = inside.split(",")
-            return Numeric(int(p), int(s))
-        if t.startswith("NVARCHAR(MAX)"):
-            return String(None)
-        if t.startswith("NVARCHAR("):
-            n = t[t.find("(") + 1 : t.find(")")]
-            return String(int(n))
-        return String(None)
+
+        if t.startswith("NVARCHAR"):
+            if "MAX" in t:
+                return NVARCHAR(None)
+            else:
+                size = int(t[t.find("(") + 1 : t.find(")")])
+                return NVARCHAR(size)
+
+        raise ValueError(f"Unsupported data type: {t}")
 
     def apply_collation_full(self, schema, table_name, collation, fields):
-        with self.engine.connect() as conn:
-            fq_table = f"{schema}.{table_name}" if schema else table_name
-            try:
-                conn.execute(text(f"ALTER TABLE {fq_table} COLLATE {collation}"))
-            except SQLAlchemyError:
-                pass
+        fq_table = f"{schema}.{table_name}" if schema else table_name
+
+        with self.engine.begin() as conn:
+            # table collation
+            conn.execute(
+                text(f"ALTER TABLE {fq_table} COLLATE {collation}")
+            )
+
+            # column collation (only NVARCHAR)
             for f in fields:
                 col_name = f["db"]
                 col_type = f["type"].upper()
+
                 if col_type.startswith("NVARCHAR"):
-                    try:
-                        conn.execute(text(
-                            f"ALTER TABLE {fq_table} "
-                            f"ALTER COLUMN {col_name} {col_type} COLLATE {collation}"
-                        ))
-                    except SQLAlchemyError:
-                        pass
+                    conn.execute(text(
+                        f"""
+                        ALTER TABLE {fq_table}
+                        ALTER COLUMN {col_name} {col_type}
+                        COLLATE {collation} NULL
+                        """
+                    ))
 
     def create_tables(self):
         if self.engine is None:
@@ -111,38 +111,70 @@ class DatabaseBuilder:
 
             if self.add_primary_key:
                 cols.append(
-                    Column("ID", BigInteger(), primary_key=True, autoincrement=True)
+                    Column(
+                        "ID",
+                        BigInteger(),
+                        primary_key=True,
+                        autoincrement=True
+                    )
                 )
 
             for field in table_def["fields"]:
                 col_name = field["db"]
                 col_type = field["type"]
+
                 if not col_name:
                     display(Markdown(f"⚠️ Skipped field with empty db name in `{table_name}`"))
                     continue
+
                 sqlalchemy_type = self.map_type(col_type)
-                col_obj = Column(col_name, sqlalchemy_type)
+
+                col_obj = Column(
+                    col_name,
+                    sqlalchemy_type,
+                    nullable=True  # ALL COLUMNS NULLABLE
+                )
+
                 cols.append(col_obj)
 
             table_obj = Table(table_name, metadata, *cols)
 
             try:
                 metadata.create_all(self.engine)
+
                 if self.add_primary_key:
                     with self.engine.connect() as conn:
                         fq_table = f"{schema}.{table_name}" if schema else table_name
                         conn.execute(text(
-                            f"IF NOT EXISTS (SELECT 1 FROM sys.identity_columns WHERE object_id = OBJECT_ID('{fq_table}') AND seed_value = 1001) "
-                            f"DBCC CHECKIDENT ('{fq_table}', RESEED, 1000)"
+                            f"""
+                            IF NOT EXISTS (
+                                SELECT 1
+                                FROM sys.identity_columns
+                                WHERE object_id = OBJECT_ID('{fq_table}')
+                                AND seed_value = 1001
+                            )
+                            DBCC CHECKIDENT ('{fq_table}', RESEED, 1000)
+                            """
                         ))
+
                 display(Markdown(f"### ✅ Table `{table_name}` created successfully."))
+
             except SQLAlchemyError as e:
-                display(Markdown(f"### ❌ Error creating table `{table_name}`:\n```\n{str(e)}\n```"))
+                display(Markdown(
+                    f"### ❌ Error creating table `{table_name}`:\n```\n{str(e)}\n```"
+                ))
                 continue
 
             if collation:
-                self.apply_collation_full(schema, table_name, collation, table_def["fields"])
-                display(Markdown(f"### 🔤 Collation `{collation}` applied to table and fields."))
+                self.apply_collation_full(
+                    schema,
+                    table_name,
+                    collation,
+                    table_def["fields"]
+                )
+                display(Markdown(
+                    f"### 🔤 Collation `{collation}` applied to table and fields."
+                ))
 
             result_info = []
             for c in cols:
@@ -158,5 +190,7 @@ class DatabaseBuilder:
         return created_tables
 
 
-
-# DatabaseBuilder(add_primary_key=True)
+# Example usage:
+# builder = DatabaseBuilder(add_primary_key=True)
+# builder.build_engine()
+# builder.create_tables()
