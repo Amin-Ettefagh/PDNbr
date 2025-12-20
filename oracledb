@@ -1,0 +1,95 @@
+import oracledb
+
+CONFIG = {
+    "host": "192.168.1.10",
+    "port": 1521,
+    "service_name": "ORCLPDB1",
+    "username": "APP_USER",
+    "password": "PASSWORD"
+}
+
+def log_error(title, error):
+    print(title)
+    print(str(error))
+
+def connect_oracle(cfg):
+    try:
+        dsn = oracledb.makedsn(cfg["host"], cfg["port"], service_name=cfg["service_name"])
+        return oracledb.connect(user=cfg["username"], password=cfg["password"], dsn=dsn)
+    except Exception as e:
+        log_error("CONNECTION_ERROR", e)
+        return None
+
+def get_schema(conn):
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT SYS_CONTEXT('USERENV','CURRENT_SCHEMA') FROM dual")
+        return cur.fetchone()[0]
+    except Exception as e:
+        log_error("SCHEMA_ERROR", e)
+        return None
+
+def get_tables(conn, schema):
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT table_name FROM all_tables WHERE owner = :s ORDER BY table_name", s=schema)
+        return [r[0] for r in cur.fetchall()]
+    except Exception as e:
+        log_error("TABLE_LIST_ERROR", e)
+        return []
+
+def get_columns(conn, schema, table):
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT column_name, data_type FROM all_tab_columns WHERE owner=:s AND table_name=:t ORDER BY column_id",
+            s=schema, t=table
+        )
+        return cur.fetchall()
+    except Exception as e:
+        return f"COLUMN_ERROR {table}: {e}"
+
+def get_records(conn, table, limit=10):
+    try:
+        cur = conn.cursor()
+        cur.execute(f"SELECT * FROM {table} FETCH FIRST {limit} ROWS ONLY")
+        return cur.fetchall()
+    except Exception as e:
+        return f"RECORD_ERROR {table}: {e}"
+
+def run():
+    conn = connect_oracle(CONFIG)
+    if not conn:
+        return
+
+    schema = get_schema(conn)
+    if not schema:
+        return
+
+    print("SCHEMA:", schema)
+
+    tables = get_tables(conn, schema)
+    print("TABLE_COUNT:", len(tables))
+
+    for table in tables:
+        print("\nTABLE:", table)
+
+        cols = get_columns(conn, schema, table)
+        if isinstance(cols, str):
+            print(cols)
+        else:
+            print("COLUMNS:")
+            for c in cols:
+                print(c)
+
+        recs = get_records(conn, table)
+        if isinstance(recs, str):
+            print(recs)
+        else:
+            print("RECORDS:")
+            for r in recs:
+                print(r)
+
+    conn.close()
+
+run()
