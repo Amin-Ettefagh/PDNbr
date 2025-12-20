@@ -8,9 +8,14 @@ CONFIG = {
     "password": "PASSWORD"
 }
 
+OUTPUT_FILE = "oracle_dump.txt"
+
+def write(line):
+    with open(OUTPUT_FILE, "a", encoding="utf-8") as f:
+        f.write(line + "\n")
+
 def log_error(title, error):
-    print(title)
-    print(str(error))
+    write(f"ERROR | {title} | {error}")
 
 def connect_oracle(cfg):
     try:
@@ -39,57 +44,72 @@ def get_tables_by_schema(conn, schema):
         return []
 
 def get_columns(conn, schema, table):
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT column_name, data_type FROM all_tab_columns WHERE owner=:s AND table_name=:t ORDER BY column_id",
-            s=schema, t=table
-        )
-        return cur.fetchall()
-    except Exception as e:
-        return f"COLUMN_ERROR {schema}.{table}: {e}"
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT column_name, data_type FROM all_tab_columns WHERE owner=:s AND table_name=:t ORDER BY column_id",
+        s=schema, t=table
+    )
+    return cur.fetchall()
 
-def get_records(conn, schema, table, limit=10):
-    try:
-        cur = conn.cursor()
-        cur.execute(f"SELECT * FROM {schema}.{table} FETCH FIRST {limit} ROWS ONLY")
-        return cur.fetchall()
-    except Exception as e:
-        return f"RECORD_ERROR {schema}.{table}: {e}"
+def get_table_count(conn, schema, table):
+    cur = conn.cursor()
+    cur.execute(f"SELECT COUNT(*) FROM {schema}.{table}")
+    return cur.fetchone()[0]
+
+def get_column_sample(conn, schema, table, column):
+    cur = conn.cursor()
+    cur.execute(f"""
+        SELECT {column}
+        FROM {schema}.{table}
+        WHERE {column} IS NOT NULL
+        FETCH FIRST 1 ROWS ONLY
+    """)
+    row = cur.fetchone()
+    return row[0] if row else None
 
 def run():
+    open(OUTPUT_FILE, "w", encoding="utf-8").close()
+
     conn = connect_oracle(CONFIG)
     if not conn:
         return
 
     schemas = get_accessible_schemas(conn)
-    print("SCHEMA_COUNT:", len(schemas))
+    write(f"SCHEMA_COUNT: {len(schemas)}")
 
     for schema in schemas:
-        print("\nSCHEMA:", schema)
+        write("=" * 80)
+        write(f"SCHEMA: {schema}")
 
         tables = get_tables_by_schema(conn, schema)
-        print("TABLE_COUNT:", len(tables))
+        write(f"TABLE_COUNT: {len(tables)}")
 
         for table in tables:
-            print("\nTABLE:", f"{schema}.{table}")
+            write("-" * 60)
+            write(f"TABLE: {schema}.{table}")
 
-            cols = get_columns(conn, schema, table)
-            if isinstance(cols, str):
-                print(cols)
-            else:
-                print("COLUMNS:")
-                for c in cols:
-                    print(c)
+            try:
+                total_records = get_table_count(conn, schema, table)
+                write(f"TOTAL_RECORDS: {total_records}")
+            except Exception as e:
+                log_error(f"COUNT_ERROR {schema}.{table}", e)
+                continue
 
-            recs = get_records(conn, schema, table)
-            if isinstance(recs, str):
-                print(recs)
-            else:
-                print("RECORDS:")
-                for r in recs:
-                    print(r)
+            try:
+                columns = get_columns(conn, schema, table)
+                write(f"COLUMN_COUNT: {len(columns)}")
+
+                for col_name, col_type in columns:
+                    try:
+                        sample = get_column_sample(conn, schema, table, col_name)
+                        write(f"FIELD: {col_name} | TYPE: {col_type} | SAMPLE: {sample}")
+                    except Exception as e:
+                        log_error(f"SAMPLE_ERROR {schema}.{table}.{col_name}", e)
+
+            except Exception as e:
+                log_error(f"COLUMN_ERROR {schema}.{table}", e)
 
     conn.close()
+    write("END_OF_DUMP")
 
 run()
