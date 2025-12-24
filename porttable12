@@ -13,14 +13,13 @@ APP_NAME = "PortableTransferMMR"
 HOST = "cftp.mmr.local"
 PORT = 993
 REMOTE_PATH = "/"
-WINSCP_REL = os.path.join("WinSCP", "winscp.com")
 
 if getattr(sys, "frozen", False):
     BASE_DIR = os.path.dirname(sys.executable)
 else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-WINSCP = os.path.join(BASE_DIR, WINSCP_REL)
+WINSCP = os.path.join(BASE_DIR, "WinSCP", "winscp.com")
 TEMP_DIR = os.path.join(BASE_DIR, "temp_files")
 
 PROCESS_LOG = os.path.join(BASE_DIR, "process.log")
@@ -28,10 +27,8 @@ HISTORY_LOG = os.path.join(BASE_DIR, "history.log")
 
 os.makedirs(TEMP_DIR, exist_ok=True)
 
-
 def ts():
     return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
 
 def write_process(text):
     try:
@@ -40,14 +37,12 @@ def write_process(text):
     except:
         pass
 
-
 def append_history(text):
     try:
         with open(HISTORY_LOG, "a", encoding="utf-8", errors="ignore") as f:
             f.write(text)
     except:
         pass
-
 
 class App(tk.Tk):
     def __init__(self):
@@ -138,21 +133,24 @@ class App(tk.Tk):
             append_history(f"[{ts()}] ERROR LOCAL_ACCESS\n{src}\n{str(e)}\n\n")
             return
 
-        name = os.path.basename(src)
-        local_temp = os.path.join(TEMP_DIR, name)
+        ext = os.path.splitext(src)[1]
+        if not ext:
+            ext = ".dat"
+
+        local_temp = os.path.join(TEMP_DIR, f"StatusRU{ext}")
 
         try:
-            if os.path.exists(local_temp):
-                try:
+            try:
+                if os.path.exists(local_temp):
                     os.remove(local_temp)
-                except:
-                    pass
+            except:
+                pass
             shutil.copy2(src, local_temp)
         except Exception as e:
             append_history(f"[{ts()}] ERROR LOCAL_COPY\n{src} -> {local_temp}\n{str(e)}\n\n")
             return
 
-        remote_file = (REMOTE_PATH.rstrip("/") + "/" + name) if REMOTE_PATH != "/" else ("/" + name)
+        remote_file = (REMOTE_PATH.rstrip("/") + "/" + f"StatusRU{ext}") if REMOTE_PATH != "/" else ("/" + f"StatusRU{ext}")
 
         open_cmd = f'open ftpes://{self.user}:{self.password}@{HOST}:{PORT}'
         cmd = [
@@ -161,7 +159,8 @@ class App(tk.Tk):
             "/log=temp_upload.log",
             "/command",
             open_cmd,
-            f'put -overwrite "{local_temp}" "{remote_file}"',
+            f'cd {REMOTE_PATH}',
+            f'put "{local_temp}" "{remote_file}"',
             "exit"
         ]
 
@@ -199,7 +198,6 @@ class App(tk.Tk):
             self.destroy()
         except:
             pass
-
 
 class MiniUI(tk.Toplevel):
     def __init__(self, app):
@@ -264,7 +262,6 @@ class MiniUI(tk.Toplevel):
         except:
             pass
         os._exit(0)
-
 
 if __name__ == "__main__":
     App().mainloop()
