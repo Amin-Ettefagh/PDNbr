@@ -3,33 +3,40 @@ import sys
 import time
 import threading
 import subprocess
+import datetime
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
 APP_NAME = "PortableTransferMMR"
+
 HOST = "cftp.mmr.local"
 PORT = 993
 REMOTE_PATH = "/"
+PROTOCOL = "explicit"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable)
 else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-WINSCP_PATH = os.path.join(BASE_DIR, "WinSCP", "winscp.com")
+WINSCP = os.path.join(BASE_DIR, "WinSCP", "winscp.com")
+
+PROCESS_LOG = os.path.join(BASE_DIR, "process.log")
+HISTORY_LOG = os.path.join(BASE_DIR, "history.log")
 
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
 
         self.title(APP_NAME)
-        self.geometry("440x320+200+200")
+        self.geometry("440x330+200+200")
         self.configure(bg="#141414")
         self.resizable(False, False)
 
-        self.running = False
         self.interval = 30
         self.file_path = ""
+        self.running = False
+        self.paused = False
 
         tk.Label(self, text="Username", bg="#141414", fg="white").pack(pady=(16, 4))
         self.e_user = tk.Entry(self, bg="#1f1f1f", fg="white", insertbackground="white")
@@ -49,14 +56,7 @@ class App(tk.Tk):
 
         tk.Button(self, text="Select File", command=self.select_file).pack()
 
-        self.start_btn = tk.Button(
-            self,
-            text="START",
-            command=self.start,
-            bg="#2b2b2b",
-            fg="white",
-            height=2
-        )
+        self.start_btn = tk.Button(self, text="START", command=self.start, bg="#2b2b2b", fg="white", height=2)
         self.start_btn.pack(pady=18)
 
         self.bind("<Return>", lambda e: self.start())
@@ -68,10 +68,10 @@ class App(tk.Tk):
             self.file_label.config(text=os.path.basename(f))
 
     def start(self):
-        user = self.e_user.get().strip()
-        password = self.e_pass.get().strip()
+        self.user = self.e_user.get().strip()
+        self.password = self.e_pass.get().strip()
 
-        if not user or not password or not self.file_path:
+        if not self.user or not self.password or not self.file_path:
             messagebox.showerror(APP_NAME, "Username, password and file are required.")
             return
 
@@ -82,32 +82,57 @@ class App(tk.Tk):
         except:
             self.interval = 30
 
-        self.user = user
-        self.password = password
-
         self.withdraw()
         MiniUI(self)
+
         self.running = True
         threading.Thread(target=self.loop, daemon=True).start()
 
     def loop(self):
         while self.running:
-            self.upload()
+            if not self.paused:
+                self.upload()
             time.sleep(self.interval)
 
     def upload(self):
-        if not os.path.isfile(WINSCP_PATH):
+        if self.paused:
             return
 
+        if not os.path.isfile(WINSCP):
+            return
+
+        open_cmd = f'open ftpes://{self.user}:{self.password}@{HOST}:{PORT}'
+
         cmd = [
-            WINSCP_PATH,
+            WINSCP,
             "/console",
+            "/log=temp_upload.log",
             "/command",
-            f'open ftpes://{self.user}:{self.password}@{HOST}:{PORT}',
+            open_cmd,
+            f'cd {REMOTE_PATH}',
             f'put "{self.file_path}"',
             "exit"
         ]
-        subprocess.run(cmd, capture_output=True)
+
+        run = subprocess.run(cmd, capture_output=True, text=True)
+
+        with open(PROCESS_LOG, "w", encoding="utf-8", errors="ignore") as p:
+            p.write(run.stdout)
+            p.write(run.stderr)
+
+        if os.path.exists("temp_upload.log"):
+            with open("temp_upload.log", "r", encoding="utf-8", errors="ignore") as t:
+                log_data = t.read()
+            os.remove("temp_upload.log")
+        else:
+            log_data = "No WinSCP log found."
+
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        size = os.path.getsize(self.file_path)
+
+        with open(HISTORY_LOG, "a", encoding="utf-8", errors="ignore") as h:
+            h.write(f"[{timestamp}] UPLOAD: {self.file_path} -> {HOST}:{REMOTE_PATH} ({size} bytes)\n")
+            h.write(log_data + "\n\n")
 
 class MiniUI(tk.Toplevel):
     def __init__(self, app):
@@ -117,10 +142,10 @@ class MiniUI(tk.Toplevel):
         self.overrideredirect(True)
         self.configure(bg="#1c1c1c")
 
-        w, h = 240, 110
+        w, h = 260, 130
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()
-        self.geometry(f"{w}x{h}+{sw-w-16}+{sh-h-60}")
+        self.geometry(f"{w}x{h}+{sw-w-16}+{sh-h-70}")
 
         tk.Label(self, text=APP_NAME, bg="#1c1c1c", fg="white").pack(pady=(10, 4))
 
@@ -130,8 +155,9 @@ class MiniUI(tk.Toplevel):
         row = tk.Frame(self, bg="#1c1c1c")
         row.pack(pady=10)
 
-        tk.Button(row, text="REFRESH", width=10, command=self.app.upload).pack(side="left", padx=6)
-        tk.Button(row, text="CLOSE", width=10, command=self.close).pack(side="left", padx=6)
+        tk.Button(row, text="REFRESH", width=9, command=self.refresh).pack(side="left", padx=6)
+        tk.Button(row, text="PAUSE", width=9, command=self.toggle_pause).pack(side="left", padx=6)
+        tk.Button(row, text="CLOSE", width=9, command=self.close).pack(side="left", padx=6)
 
         self.remaining = self.app.interval
         self.after(1000, self.tick)
@@ -139,11 +165,20 @@ class MiniUI(tk.Toplevel):
         self.bind("<Button-1>", self.start_drag)
         self.bind("<B1-Motion>", self.drag)
 
+    def refresh(self):
+        if not self.app.paused:
+            threading.Thread(target=self.app.upload, daemon=True).start()
+
+    def toggle_pause(self):
+        self.app.paused = not self.app.paused
+
     def tick(self):
-        self.remaining -= 1
-        if self.remaining <= 0:
-            self.remaining = self.app.interval
-        self.timer_label.config(text=f"Next sync in {self.remaining}s")
+        if not self.app.paused:
+            self.remaining -= 1
+            if self.remaining <= 0:
+                self.remaining = self.app.interval
+        state = "PAUSED" if self.app.paused else f"Next sync in {self.remaining}s"
+        self.timer_label.config(text=state)
         self.after(1000, self.tick)
 
     def start_drag(self, e):
