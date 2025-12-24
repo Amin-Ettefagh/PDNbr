@@ -1,0 +1,211 @@
+import os
+import sys
+import time
+import threading
+import subprocess
+import datetime
+import shutil
+import tkinter as tk
+from tkinter import filedialog, messagebox
+
+APP_NAME = "PortableTransferMMR - Download"
+
+HOST = "cftp.mmr.local"
+PORT = 993
+REMOTE_FILE = "/StatusRU.xlsx"
+
+if getattr(sys, "frozen", False):
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+WINSCP = os.path.join(BASE_DIR, "WinSCP", "winscp.com")
+TEMP_DIR = os.path.join(BASE_DIR, "temp_files")
+
+PROCESS_LOG = os.path.join(BASE_DIR, "process.log")
+HISTORY_LOG = os.path.join(BASE_DIR, "history.log")
+
+os.makedirs(TEMP_DIR, exist_ok=True)
+
+def now():
+    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+def clear_temp():
+    for f in os.listdir(TEMP_DIR):
+        try:
+            os.remove(os.path.join(TEMP_DIR, f))
+        except:
+            pass
+
+def write_process(txt):
+    with open(PROCESS_LOG, "w", encoding="utf-8", errors="ignore") as f:
+        f.write(txt)
+
+def append_history(txt):
+    with open(HISTORY_LOG, "a", encoding="utf-8", errors="ignore") as f:
+        f.write(txt)
+
+def make_script(user, password, local_temp):
+    script = os.path.join(TEMP_DIR, "winscp_script.txt")
+    lines = [
+        "option batch on",
+        "option confirm off",
+        f"open ftpes://{user}:{password}@{HOST}:{PORT}",
+        f'get "{REMOTE_FILE}" "{local_temp}"',
+        "exit"
+    ]
+    with open(script, "w", encoding="utf-8") as s:
+        s.write("\n".join(lines) + "\n")
+    return script
+
+class App(tk.Tk):
+    def __init__(self):
+        super().__init__()
+
+        self.title(APP_NAME)
+        self.geometry("460x360+200+200")
+        self.configure(bg="#141414")
+        self.resizable(False, False)
+
+        self.interval = 30
+        self.dest_folder = ""
+        self.user = ""
+        self.password = ""
+        self.running = False
+        self.paused = False
+
+        tk.Label(self, text="Username", bg="#141414", fg="white").pack(pady=(16, 4))
+        self.e_user = tk.Entry(self, bg="#1f1f1f", fg="white", insertbackground="white")
+        self.e_user.pack(fill="x", padx=24)
+
+        tk.Label(self, text="Password", bg="#141414", fg="white").pack(pady=(10, 4))
+        self.e_pass = tk.Entry(self, show="*", bg="#1f1f1f", fg="white", insertbackground="white")
+        self.e_pass.pack(fill="x", padx=24)
+
+        tk.Label(self, text="Interval (seconds)", bg="#141414", fg="white").pack(pady=(10, 4))
+        self.e_interval = tk.Entry(self, bg="#1f1f1f", fg="white", insertbackground="white")
+        self.e_interval.pack(fill="x", padx=24)
+        self.e_interval.insert(0, "30")
+
+        self.folder_label = tk.Label(self, text="No destination selected", bg="#141414", fg="#9a9a9a")
+        self.folder_label.pack(pady=(12, 6))
+
+        tk.Button(self, text="Select Destination Folder", command=self.select_folder).pack()
+        tk.Button(self, text="START", command=self.start, bg="#2b2b2b", fg="white", height=2).pack(pady=18)
+
+    def select_folder(self):
+        d = filedialog.askdirectory()
+        if d:
+            self.dest_folder = d
+            self.folder_label.config(text=d)
+
+    def start(self):
+        self.user = self.e_user.get().strip()
+        self.password = self.e_pass.get().strip()
+
+        if not self.user or not self.password or not self.dest_folder:
+            messagebox.showerror(APP_NAME, "Username, password and destination folder are required.")
+            return
+
+        try:
+            self.interval = int(self.e_interval.get().strip())
+        except:
+            self.interval = 30
+
+        if not os.path.isfile(WINSCP):
+            messagebox.showerror(APP_NAME, "WinSCP not found")
+            return
+
+        self.withdraw()
+        MiniUI(self)
+
+        self.running = True
+        threading.Thread(target=self.loop, daemon=True).start()
+
+    def loop(self):
+        while self.running:
+            if not self.paused:
+                self.sync_once()
+            time.sleep(self.interval)
+
+    def sync_once(self):
+        try:
+            clear_temp()
+            local_temp = os.path.join(TEMP_DIR, "StatusRU.xlsx")
+
+            script = make_script(self.user, self.password, local_temp)
+
+            cmd = [
+                WINSCP,
+                "/console",
+                "/log=temp_winscp.log",
+                f"/script={script}"
+            ]
+
+            run = subprocess.run(cmd, capture_output=True, text=True)
+            write_process((run.stdout or "") + (run.stderr or ""))
+
+            if not os.path.isfile(local_temp):
+                append_history(f"[{now()}] ERROR file not downloaded\n\n")
+                return
+
+            dest_file = os.path.join(self.dest_folder, "StatusRU.xlsx")
+            shutil.copy2(local_temp, dest_file)
+
+            append_history(
+                f"[{now()}] DOWNLOAD OK\n"
+                f"REMOTE: {REMOTE_FILE}\n"
+                f"DEST: {dest_file}\n\n"
+            )
+
+        except Exception as e:
+            append_history(f"[{now()}] ERROR {str(e)}\n\n")
+
+class MiniUI(tk.Toplevel):
+    def __init__(self, app):
+        super().__init__()
+        self.app = app
+
+        self.overrideredirect(True)
+        self.configure(bg="#1c1c1c")
+
+        w, h = 280, 140
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        self.geometry(f"{w}x{h}+{sw-w-16}+{sh-h-80}")
+
+        tk.Label(self, text=APP_NAME, bg="#1c1c1c", fg="white").pack(pady=(10, 4))
+        self.timer = tk.Label(self, text="", bg="#1c1c1c", fg="#bbbbbb")
+        self.timer.pack()
+
+        row = tk.Frame(self, bg="#1c1c1c")
+        row.pack(pady=10)
+
+        tk.Button(row, text="SYNC", width=9, command=self.sync).pack(side="left", padx=6)
+        tk.Button(row, text="PAUSE", width=9, command=self.pause).pack(side="left", padx=6)
+        tk.Button(row, text="CLOSE", width=9, command=self.close).pack(side="left", padx=6)
+
+        self.remaining = self.app.interval
+        self.after(1000, self.tick)
+
+    def sync(self):
+        self.remaining = self.app.interval
+        threading.Thread(target=self.app.sync_once, daemon=True).start()
+
+    def pause(self):
+        self.app.paused = not self.app.paused
+
+    def tick(self):
+        if not self.app.paused:
+            self.remaining -= 1
+            if self.remaining <= 0:
+                self.remaining = self.app.interval
+        self.timer.config(text="PAUSED" if self.app.paused else f"Next sync in {self.remaining}s")
+        self.after(1000, self.tick)
+
+    def close(self):
+        self.app.running = False
+        os._exit(0)
+
+if __name__ == "__main__":
+    App().mainloop()
