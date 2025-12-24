@@ -12,7 +12,7 @@ APP_NAME = "PortableTransferMMR"
 
 HOST = "cftp.mmr.local"
 PORT = 993
-REMOTE_PATH = "/"
+REMOTE_PATH = "/"   # مقصد دقیق
 
 if getattr(sys, "frozen", False):
     BASE_DIR = os.path.dirname(sys.executable)
@@ -27,16 +27,8 @@ HISTORY_LOG = os.path.join(BASE_DIR, "history.log")
 
 os.makedirs(TEMP_DIR, exist_ok=True)
 
-def ts():
+def now():
     return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-def write_process(text):
-    with open(PROCESS_LOG, "w", encoding="utf-8", errors="ignore") as f:
-        f.write(text)
-
-def append_history(text):
-    with open(HISTORY_LOG, "a", encoding="utf-8", errors="ignore") as f:
-        f.write(text)
 
 class App(tk.Tk):
     def __init__(self):
@@ -73,8 +65,6 @@ class App(tk.Tk):
         tk.Button(self, text="Select File", command=self.select_file).pack()
         tk.Button(self, text="START", command=self.start, bg="#2b2b2b", fg="white", height=2).pack(pady=18)
 
-        self.bind("<Return>", lambda e: self.start())
-
     def select_file(self):
         f = filedialog.askopenfilename()
         if f:
@@ -91,13 +81,11 @@ class App(tk.Tk):
 
         try:
             self.interval = int(self.e_interval.get().strip())
-            if self.interval <= 0:
-                self.interval = 30
         except:
             self.interval = 30
 
         if not os.path.isfile(WINSCP):
-            messagebox.showerror(APP_NAME, f"WinSCP not found:\n{WINSCP}")
+            messagebox.showerror(APP_NAME, "WinSCP not found")
             return
 
         self.withdraw()
@@ -109,82 +97,50 @@ class App(tk.Tk):
     def loop(self):
         while self.running:
             if not self.paused:
-                self.sync_now()
+                self.sync_once()
             time.sleep(self.interval)
 
-    def sync_now(self):
-        if self.paused:
-            return
+    def clear_temp(self):
+        for f in os.listdir(TEMP_DIR):
+            try:
+                os.remove(os.path.join(TEMP_DIR, f))
+            except:
+                pass
 
-        src = self.source_file
-
-        if not os.path.isfile(src):
-            append_history(f"[{ts()}] ERROR SOURCE_NOT_FOUND\n{src}\n\n")
-            return
-
-        ext = os.path.splitext(src)[1] or ".dat"
-        tmp_work = os.path.join(TEMP_DIR, f".tmp_copy{ext}")
-        tmp_final = os.path.join(TEMP_DIR, f"StatusRU{ext}")
-
+    def sync_once(self):
         try:
-            if os.path.exists(tmp_work):
-                os.remove(tmp_work)
-            shutil.copy2(src, tmp_work)
+            self.clear_temp()
 
-            if os.path.exists(tmp_final):
-                os.remove(tmp_final)
+            name = os.path.basename(self.source_file)
+            temp_file = os.path.join(TEMP_DIR, name)
 
-            os.rename(tmp_work, tmp_final)
+            shutil.copy2(self.source_file, temp_file)
+
+            remote_file = f"{REMOTE_PATH.rstrip('/')}/{name}"
+
+            open_cmd = f'open ftpes://{self.user}:{self.password}@{HOST}:{PORT}'
+
+            cmd = [
+                WINSCP,
+                "/console",
+                "/command",
+                open_cmd,
+                f'put "{temp_file}" "{remote_file}"',
+                "exit"
+            ]
+
+            run = subprocess.run(cmd, capture_output=True, text=True)
+
+            with open(PROCESS_LOG, "w", encoding="utf-8", errors="ignore") as p:
+                p.write(run.stdout)
+                p.write(run.stderr)
+
+            with open(HISTORY_LOG, "a", encoding="utf-8", errors="ignore") as h:
+                h.write(f"[{now()}] OK {temp_file} -> {remote_file}\n")
+
         except Exception as e:
-            append_history(f"[{ts()}] ERROR TEMP_COPY\n{str(e)}\n\n")
-            return
-
-        if not os.path.isfile(tmp_final) or os.path.getsize(tmp_final) <= 0:
-            append_history(f"[{ts()}] ERROR TEMP_NOT_READY\n{tmp_final}\n\n")
-            return
-
-        open_cmd = f'open ftpes://{self.user}:{self.password}@{HOST}:{PORT}'
-
-        cmd = [
-            WINSCP,
-            "/console",
-            "/log=temp_upload.log",
-            "/command",
-            open_cmd,
-            f'cd {REMOTE_PATH}',
-            f'put "{tmp_final}"',
-            "exit"
-        ]
-
-        run = subprocess.run(cmd, capture_output=True, text=True)
-        write_process((run.stdout or "") + (run.stderr or ""))
-
-        winscp_log = ""
-        if os.path.exists("temp_upload.log"):
-            with open("temp_upload.log", "r", encoding="utf-8", errors="ignore") as f:
-                winscp_log = f.read()
-            os.remove("temp_upload.log")
-
-        size = os.path.getsize(tmp_final)
-
-        append_history(
-            f"[{ts()}] SYNC OK\n"
-            f"SRC: {src}\n"
-            f"TEMP: {tmp_final}\n"
-            f"REMOTE: {HOST}{REMOTE_PATH}\n"
-            f"SIZE: {size} bytes\n"
-            f"RC: {run.returncode}\n"
-            f"{winscp_log}\n\n"
-        )
-
-        try:
-            os.remove(tmp_final)
-        except:
-            pass
-
-    def stop(self):
-        self.running = False
-        self.destroy()
+            with open(HISTORY_LOG, "a", encoding="utf-8", errors="ignore") as h:
+                h.write(f"[{now()}] ERROR {e}\n")
 
 class MiniUI(tk.Toplevel):
     def __init__(self, app):
@@ -194,36 +150,30 @@ class MiniUI(tk.Toplevel):
         self.overrideredirect(True)
         self.configure(bg="#1c1c1c")
 
-        w, h = 260, 140
+        w, h = 260, 130
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()
         self.geometry(f"{w}x{h}+{sw-w-16}+{sh-h-80}")
 
         tk.Label(self, text=APP_NAME, bg="#1c1c1c", fg="white").pack(pady=(10, 4))
-
-        self.timer_label = tk.Label(self, text="", bg="#1c1c1c", fg="#bbbbbb")
-        self.timer_label.pack()
+        self.timer = tk.Label(self, text="", bg="#1c1c1c", fg="#bbbbbb")
+        self.timer.pack()
 
         row = tk.Frame(self, bg="#1c1c1c")
         row.pack(pady=10)
 
         tk.Button(row, text="SYNC", width=9, command=self.sync).pack(side="left", padx=6)
-        tk.Button(row, text="PAUSE", width=9, command=self.toggle_pause).pack(side="left", padx=6)
+        tk.Button(row, text="PAUSE", width=9, command=self.pause).pack(side="left", padx=6)
         tk.Button(row, text="CLOSE", width=9, command=self.close).pack(side="left", padx=6)
 
         self.remaining = self.app.interval
         self.after(1000, self.tick)
 
-        self.bind("<Button-1>", self.start_drag)
-        self.bind("<B1-Motion>", self.drag)
-
     def sync(self):
-        if self.app.paused:
-            return
         self.remaining = self.app.interval
-        threading.Thread(target=self.app.sync_now, daemon=True).start()
+        threading.Thread(target=self.app.sync_once, daemon=True).start()
 
-    def toggle_pause(self):
+    def pause(self):
         self.app.paused = not self.app.paused
 
     def tick(self):
@@ -231,19 +181,11 @@ class MiniUI(tk.Toplevel):
             self.remaining -= 1
             if self.remaining <= 0:
                 self.remaining = self.app.interval
-        self.timer_label.config(text="PAUSED" if self.app.paused else f"Next sync in {self.remaining}s")
+        self.timer.config(text="PAUSED" if self.app.paused else f"Next sync in {self.remaining}s")
         self.after(1000, self.tick)
 
-    def start_drag(self, e):
-        self._dx = e.x
-        self._dy = e.y
-
-    def drag(self, e):
-        self.geometry(f"+{e.x_root - self._dx}+{e.y_root - self._dy}")
-
     def close(self):
-        self.app.stop()
-        self.destroy()
+        self.app.running = False
         os._exit(0)
 
 if __name__ == "__main__":
