@@ -16,14 +16,14 @@ if getattr(sys, 'frozen', False):
 else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-WINSCP = os.path.join(BASE_DIR, "WinSCP", "winscp.com")
+WINSCP_PATH = os.path.join(BASE_DIR, "WinSCP", "winscp.com")
 
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
 
         self.title(APP_NAME)
-        self.geometry("420x260+200+200")
+        self.geometry("440x320+200+200")
         self.configure(bg="#141414")
         self.resizable(False, False)
 
@@ -31,7 +31,7 @@ class App(tk.Tk):
         self.interval = 30
         self.file_path = ""
 
-        tk.Label(self, text="Username", bg="#141414", fg="white").pack(pady=(14, 4))
+        tk.Label(self, text="Username", bg="#141414", fg="white").pack(pady=(16, 4))
         self.e_user = tk.Entry(self, bg="#1f1f1f", fg="white", insertbackground="white")
         self.e_user.pack(fill="x", padx=24)
 
@@ -44,12 +44,22 @@ class App(tk.Tk):
         self.e_interval.pack(fill="x", padx=24)
         self.e_interval.insert(0, "30")
 
-        self.file_label = tk.Label(self, text="No file selected", bg="#141414", fg="#888888")
-        self.file_label.pack(pady=10)
+        self.file_label = tk.Label(self, text="No file selected", bg="#141414", fg="#9a9a9a")
+        self.file_label.pack(pady=(12, 6))
 
         tk.Button(self, text="Select File", command=self.select_file).pack()
 
-        tk.Button(self, text="START", command=self.start, bg="#2b2b2b", fg="white").pack(pady=16)
+        self.start_btn = tk.Button(
+            self,
+            text="START",
+            command=self.start,
+            bg="#2b2b2b",
+            fg="white",
+            height=2
+        )
+        self.start_btn.pack(pady=18)
+
+        self.bind("<Return>", lambda e: self.start())
 
     def select_file(self):
         f = filedialog.askopenfilename()
@@ -58,17 +68,22 @@ class App(tk.Tk):
             self.file_label.config(text=os.path.basename(f))
 
     def start(self):
-        self.user = self.e_user.get().strip()
-        self.password = self.e_pass.get().strip()
+        user = self.e_user.get().strip()
+        password = self.e_pass.get().strip()
 
-        if not self.user or not self.password or not self.file_path:
+        if not user or not password or not self.file_path:
             messagebox.showerror(APP_NAME, "Username, password and file are required.")
             return
 
         try:
             self.interval = int(self.e_interval.get().strip())
+            if self.interval <= 0:
+                self.interval = 30
         except:
             self.interval = 30
+
+        self.user = user
+        self.password = password
 
         self.withdraw()
         MiniUI(self)
@@ -81,8 +96,11 @@ class App(tk.Tk):
             time.sleep(self.interval)
 
     def upload(self):
+        if not os.path.isfile(WINSCP_PATH):
+            return
+
         cmd = [
-            WINSCP,
+            WINSCP_PATH,
             "/console",
             "/command",
             f'open ftpes://{self.user}:{self.password}@{HOST}:{PORT}',
@@ -99,21 +117,21 @@ class MiniUI(tk.Toplevel):
         self.overrideredirect(True)
         self.configure(bg="#1c1c1c")
 
-        w, h = 220, 90
+        w, h = 240, 110
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()
-        self.geometry(f"{w}x{h}+{sw-w-12}+{sh-h-50}")
+        self.geometry(f"{w}x{h}+{sw-w-16}+{sh-h-60}")
 
-        tk.Label(self, text=APP_NAME, bg="#1c1c1c", fg="white").pack(pady=(8, 2))
+        tk.Label(self, text=APP_NAME, bg="#1c1c1c", fg="white").pack(pady=(10, 4))
 
-        self.timer = tk.Label(self, text="", bg="#1c1c1c", fg="#bbbbbb")
-        self.timer.pack()
+        self.timer_label = tk.Label(self, text="", bg="#1c1c1c", fg="#bbbbbb")
+        self.timer_label.pack()
 
         row = tk.Frame(self, bg="#1c1c1c")
-        row.pack(pady=6)
+        row.pack(pady=10)
 
-        tk.Button(row, text="REFRESH", width=8, command=self.app.upload).pack(side="left", padx=6)
-        tk.Button(row, text="CLOSE", width=8, command=self.close).pack(side="left", padx=6)
+        tk.Button(row, text="REFRESH", width=10, command=self.app.upload).pack(side="left", padx=6)
+        tk.Button(row, text="CLOSE", width=10, command=self.close).pack(side="left", padx=6)
 
         self.remaining = self.app.interval
         self.after(1000, self.tick)
@@ -125,15 +143,15 @@ class MiniUI(tk.Toplevel):
         self.remaining -= 1
         if self.remaining <= 0:
             self.remaining = self.app.interval
-        self.timer.config(text=f"Next sync in {self.remaining}s")
+        self.timer_label.config(text=f"Next sync in {self.remaining}s")
         self.after(1000, self.tick)
 
     def start_drag(self, e):
-        self._x = e.x
-        self._y = e.y
+        self._dx = e.x
+        self._dy = e.y
 
     def drag(self, e):
-        self.geometry(f"+{e.x_root - self._x}+{e.y_root - self._y}")
+        self.geometry(f"+{e.x_root - self._dx}+{e.y_root - self._dy}")
 
     def close(self):
         self.app.running = False
