@@ -31,18 +31,12 @@ def ts():
     return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 def write_process(text):
-    try:
-        with open(PROCESS_LOG, "w", encoding="utf-8", errors="ignore") as f:
-            f.write(text)
-    except:
-        pass
+    with open(PROCESS_LOG, "w", encoding="utf-8", errors="ignore") as f:
+        f.write(text)
 
 def append_history(text):
-    try:
-        with open(HISTORY_LOG, "a", encoding="utf-8", errors="ignore") as f:
-            f.write(text)
-    except:
-        pass
+    with open(HISTORY_LOG, "a", encoding="utf-8", errors="ignore") as f:
+        f.write(text)
 
 class App(tk.Tk):
     def __init__(self):
@@ -124,11 +118,8 @@ class App(tk.Tk):
 
         src = self.source_file
 
-        try:
-            if not os.path.isfile(src):
-                raise FileNotFoundError(src)
-        except Exception as e:
-            append_history(f"[{ts()}] ERROR SOURCE_NOT_FOUND\n{src}\n{str(e)}\n\n")
+        if not os.path.isfile(src):
+            append_history(f"[{ts()}] ERROR SOURCE_NOT_FOUND\n{src}\n\n")
             return
 
         ext = os.path.splitext(src)[1] or ".dat"
@@ -145,26 +136,23 @@ class App(tk.Tk):
 
             os.rename(tmp_work, tmp_final)
         except Exception as e:
-            append_history(f"[{ts()}] ERROR TEMP_COPY\n{src}\n{str(e)}\n\n")
+            append_history(f"[{ts()}] ERROR TEMP_COPY\n{str(e)}\n\n")
             return
 
-        try:
-            if not os.path.isfile(tmp_final) or os.path.getsize(tmp_final) <= 0:
-                raise RuntimeError("Temp file not ready")
-        except Exception as e:
-            append_history(f"[{ts()}] ERROR TEMP_NOT_READY\n{tmp_final}\n{str(e)}\n\n")
+        if not os.path.isfile(tmp_final) or os.path.getsize(tmp_final) <= 0:
+            append_history(f"[{ts()}] ERROR TEMP_NOT_READY\n{tmp_final}\n\n")
             return
-
-        remote_file = "/" + os.path.basename(tmp_final)
 
         open_cmd = f'open ftpes://{self.user}:{self.password}@{HOST}:{PORT}'
+
         cmd = [
             WINSCP,
             "/console",
             "/log=temp_upload.log",
             "/command",
             open_cmd,
-            f'put "{tmp_final}" "{remote_file}"',
+            f'cd {REMOTE_PATH}',
+            f'put "{tmp_final}"',
             "exit"
         ]
 
@@ -175,23 +163,17 @@ class App(tk.Tk):
         if os.path.exists("temp_upload.log"):
             with open("temp_upload.log", "r", encoding="utf-8", errors="ignore") as f:
                 winscp_log = f.read()
-            try:
-                os.remove("temp_upload.log")
-            except:
-                pass
+            os.remove("temp_upload.log")
 
-        try:
-            size = os.path.getsize(tmp_final)
-        except:
-            size = 0
+        size = os.path.getsize(tmp_final)
 
         append_history(
             f"[{ts()}] SYNC OK\n"
             f"SRC: {src}\n"
             f"TEMP: {tmp_final}\n"
-            f"REMOTE: {HOST}:{remote_file}\n"
+            f"REMOTE: {HOST}{REMOTE_PATH}\n"
             f"SIZE: {size} bytes\n"
-            f"RETURN_CODE: {run.returncode}\n"
+            f"RC: {run.returncode}\n"
             f"{winscp_log}\n\n"
         )
 
@@ -202,10 +184,7 @@ class App(tk.Tk):
 
     def stop(self):
         self.running = False
-        try:
-            self.destroy()
-        except:
-            pass
+        self.destroy()
 
 class MiniUI(tk.Toplevel):
     def __init__(self, app):
@@ -252,8 +231,7 @@ class MiniUI(tk.Toplevel):
             self.remaining -= 1
             if self.remaining <= 0:
                 self.remaining = self.app.interval
-        state = "PAUSED" if self.app.paused else f"Next sync in {self.remaining}s"
-        self.timer_label.config(text=state)
+        self.timer_label.config(text="PAUSED" if self.app.paused else f"Next sync in {self.remaining}s")
         self.after(1000, self.tick)
 
     def start_drag(self, e):
@@ -265,10 +243,7 @@ class MiniUI(tk.Toplevel):
 
     def close(self):
         self.app.stop()
-        try:
-            self.destroy()
-        except:
-            pass
+        self.destroy()
         os._exit(0)
 
 if __name__ == "__main__":
