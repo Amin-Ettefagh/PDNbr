@@ -126,31 +126,36 @@ class App(tk.Tk):
 
         try:
             if not os.path.isfile(src):
-                raise FileNotFoundError(f"Source file not found: {src}")
-            with open(src, "rb") as _:
-                pass
+                raise FileNotFoundError(src)
         except Exception as e:
-            append_history(f"[{ts()}] ERROR LOCAL_ACCESS\n{src}\n{str(e)}\n\n")
+            append_history(f"[{ts()}] ERROR SOURCE_NOT_FOUND\n{src}\n{str(e)}\n\n")
             return
 
-        ext = os.path.splitext(src)[1]
-        if not ext:
-            ext = ".dat"
-
-        local_temp = os.path.join(TEMP_DIR, f"StatusRU{ext}")
+        ext = os.path.splitext(src)[1] or ".dat"
+        tmp_work = os.path.join(TEMP_DIR, f".tmp_copy{ext}")
+        tmp_final = os.path.join(TEMP_DIR, f"StatusRU{ext}")
 
         try:
-            try:
-                if os.path.exists(local_temp):
-                    os.remove(local_temp)
-            except:
-                pass
-            shutil.copy2(src, local_temp)
+            if os.path.exists(tmp_work):
+                os.remove(tmp_work)
+            shutil.copy2(src, tmp_work)
+
+            if os.path.exists(tmp_final):
+                os.remove(tmp_final)
+
+            os.rename(tmp_work, tmp_final)
         except Exception as e:
-            append_history(f"[{ts()}] ERROR LOCAL_COPY\n{src} -> {local_temp}\n{str(e)}\n\n")
+            append_history(f"[{ts()}] ERROR TEMP_COPY\n{src}\n{str(e)}\n\n")
             return
 
-        remote_file = (REMOTE_PATH.rstrip("/") + "/" + f"StatusRU{ext}") if REMOTE_PATH != "/" else ("/" + f"StatusRU{ext}")
+        try:
+            if not os.path.isfile(tmp_final) or os.path.getsize(tmp_final) <= 0:
+                raise RuntimeError("Temp file not ready")
+        except Exception as e:
+            append_history(f"[{ts()}] ERROR TEMP_NOT_READY\n{tmp_final}\n{str(e)}\n\n")
+            return
+
+        remote_file = "/" + os.path.basename(tmp_final)
 
         open_cmd = f'open ftpes://{self.user}:{self.password}@{HOST}:{PORT}'
         cmd = [
@@ -159,38 +164,41 @@ class App(tk.Tk):
             "/log=temp_upload.log",
             "/command",
             open_cmd,
-            f'cd {REMOTE_PATH}',
-            f'put "{local_temp}" "{remote_file}"',
+            f'put "{tmp_final}" "{remote_file}"',
             "exit"
         ]
 
         run = subprocess.run(cmd, capture_output=True, text=True)
-        out = (run.stdout or "") + "\n" + (run.stderr or "")
-        write_process(out)
+        write_process((run.stdout or "") + (run.stderr or ""))
 
         winscp_log = ""
         if os.path.exists("temp_upload.log"):
-            with open("temp_upload.log", "r", encoding="utf-8", errors="ignore") as t:
-                winscp_log = t.read()
+            with open("temp_upload.log", "r", encoding="utf-8", errors="ignore") as f:
+                winscp_log = f.read()
             try:
                 os.remove("temp_upload.log")
             except:
                 pass
 
         try:
-            size = os.path.getsize(local_temp)
+            size = os.path.getsize(tmp_final)
         except:
             size = 0
 
         append_history(
-            f"[{ts()}] SYNC\n"
-            f"LOCAL_SRC: {src}\n"
-            f"LOCAL_TMP: {local_temp}\n"
+            f"[{ts()}] SYNC OK\n"
+            f"SRC: {src}\n"
+            f"TEMP: {tmp_final}\n"
             f"REMOTE: {HOST}:{remote_file}\n"
             f"SIZE: {size} bytes\n"
             f"RETURN_CODE: {run.returncode}\n"
             f"{winscp_log}\n\n"
         )
+
+        try:
+            os.remove(tmp_final)
+        except:
+            pass
 
     def stop(self):
         self.running = False
