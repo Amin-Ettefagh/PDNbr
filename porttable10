@@ -12,7 +12,8 @@ APP_NAME = "PortableTransferMMR"
 
 HOST = "cftp.mmr.local"
 PORT = 993
-REMOTE_PATH = "/"   # مقصد دقیق
+REMOTE_PATH = "/"               # remote folder
+REMOTE_FILENAME = "StatusRU.xlsx"  # ثابت
 
 if getattr(sys, "frozen", False):
     BASE_DIR = os.path.dirname(sys.executable)
@@ -30,12 +31,61 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 def now():
     return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+def write_process(s):
+    with open(PROCESS_LOG, "w", encoding="utf-8", errors="ignore") as f:
+        f.write(s)
+
+def append_history(s):
+    with open(HISTORY_LOG, "a", encoding="utf-8", errors="ignore") as f:
+        f.write(s)
+
+def clear_temp_dir():
+    try:
+        for name in os.listdir(TEMP_DIR):
+            p = os.path.join(TEMP_DIR, name)
+            try:
+                if os.path.isfile(p):
+                    os.remove(p)
+            except:
+                pass
+    except:
+        pass
+
+def norm_remote_folder(p):
+    if not p:
+        return "/"
+    p = p.replace("\\", "/")
+    if not p.startswith("/"):
+        p = "/" + p
+    if not p.endswith("/"):
+        p = p + "/"
+    return p
+
+def make_script(user, password, local_temp_file):
+    remote_folder = norm_remote_folder(REMOTE_PATH)
+    remote_full = remote_folder + REMOTE_FILENAME
+
+    script_path = os.path.join(TEMP_DIR, "winscp_script.txt")
+
+    open_cmd = f"open ftpes://{user}:{password}@{HOST}:{PORT}"
+    lines = [
+        "option batch on",
+        "option confirm off",
+        open_cmd,
+        f'cd "{remote_folder}"',
+        f'put "{local_temp_file}" "{remote_full}"',
+        "exit"
+    ]
+    with open(script_path, "w", encoding="utf-8") as s:
+        s.write("\n".join(lines) + "\n")
+    return script_path, remote_full
+
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
 
         self.title(APP_NAME)
-        self.geometry("440x330+200+200")
+        self.geometry("460x350+200+200")
         self.configure(bg="#141414")
         self.resizable(False, False)
 
@@ -81,11 +131,13 @@ class App(tk.Tk):
 
         try:
             self.interval = int(self.e_interval.get().strip())
+            if self.interval <= 0:
+                self.interval = 30
         except:
             self.interval = 30
 
         if not os.path.isfile(WINSCP):
-            messagebox.showerror(APP_NAME, "WinSCP not found")
+            messagebox.showerror(APP_NAME, f"WinSCP not found:\n{WINSCP}")
             return
 
         self.withdraw()
@@ -100,47 +152,63 @@ class App(tk.Tk):
                 self.sync_once()
             time.sleep(self.interval)
 
-    def clear_temp(self):
-        for f in os.listdir(TEMP_DIR):
-            try:
-                os.remove(os.path.join(TEMP_DIR, f))
-            except:
-                pass
-
     def sync_once(self):
         try:
-            self.clear_temp()
+            clear_temp_dir()
 
-            name = os.path.basename(self.source_file)
-            temp_file = os.path.join(TEMP_DIR, name)
+            local_temp = os.path.join(TEMP_DIR, REMOTE_FILENAME)
 
-            shutil.copy2(self.source_file, temp_file)
+            shutil.copy2(self.source_file, local_temp)
 
-            remote_file = f"{REMOTE_PATH.rstrip('/')}/{name}"
+            if not os.path.isfile(local_temp):
+                append_history(f"[{now()}] ERROR temp file not created: {local_temp}\n\n")
+                return
 
-            open_cmd = f'open ftpes://{self.user}:{self.password}@{HOST}:{PORT}'
+            script_path, remote_full = make_script(self.user, self.password, local_temp)
 
             cmd = [
                 WINSCP,
                 "/console",
-                "/command",
-                open_cmd,
-                f'put "{temp_file}" "{remote_file}"',
-                "exit"
+                "/log=temp_winscp.log",
+                f"/script={script_path}",
             ]
 
             run = subprocess.run(cmd, capture_output=True, text=True)
 
-            with open(PROCESS_LOG, "w", encoding="utf-8", errors="ignore") as p:
-                p.write(run.stdout)
-                p.write(run.stderr)
+            stdout = run.stdout or ""
+            stderr = run.stderr or ""
+            write_process(stdout + "\n" + stderr)
 
-            with open(HISTORY_LOG, "a", encoding="utf-8", errors="ignore") as h:
-                h.write(f"[{now()}] OK {temp_file} -> {remote_file}\n")
+            winscp_log = ""
+            if os.path.exists("temp_winscp.log"):
+                with open("temp_winscp.log", "r", encoding="utf-8", errors="ignore") as t:
+                    winscp_log = t.read()
+                try:
+                    os.remove("temp_winscp.log")
+                except:
+                    pass
+
+            size = os.path.getsize(local_temp)
+
+            append_history(
+                f"[{now()}] SYNC\n"
+                f"SRC: {self.source_file}\n"
+                f"TMP: {local_temp}\n"
+                f"REMOTE: {HOST}:{remote_full}\n"
+                f"SIZE: {size}\n"
+                f"RET: {run.returncode}\n"
+                f"{winscp_log}\n\n"
+            )
 
         except Exception as e:
-            with open(HISTORY_LOG, "a", encoding="utf-8", errors="ignore") as h:
-                h.write(f"[{now()}] ERROR {e}\n")
+            append_history(f"[{now()}] ERROR {str(e)}\n\n")
+
+    def stop(self):
+        self.running = False
+        try:
+            self.destroy()
+        except:
+            pass
 
 class MiniUI(tk.Toplevel):
     def __init__(self, app):
@@ -150,7 +218,7 @@ class MiniUI(tk.Toplevel):
         self.overrideredirect(True)
         self.configure(bg="#1c1c1c")
 
-        w, h = 260, 130
+        w, h = 280, 140
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()
         self.geometry(f"{w}x{h}+{sw-w-16}+{sh-h-80}")
