@@ -1,0 +1,197 @@
+import os
+import sys
+import json
+import time
+import threading
+import urllib.request
+import shutil
+import base64
+import tkinter as tk
+
+from tkinterdnd2 import TkinterDnD, DND_FILES
+
+REPO_URL = "https://github.com/Amin-Ettefagh/PDNbr"
+BRANCH = "master"
+INTERVAL_SECONDS = 30
+
+BASE = os.path.dirname(os.path.abspath(sys.argv[0]))
+FILES_DIR = os.path.join(BASE, "Files")
+GITHUB_DIR = os.path.join(FILES_DIR, "GitHub")
+OTHERS_DIR = os.path.join(FILES_DIR, "Others")
+
+os.makedirs(GITHUB_DIR, exist_ok=True)
+os.makedirs(OTHERS_DIR, exist_ok=True)
+
+class GitHubRepoSync:
+    def __init__(self, repo_url: str, branch: str, interval_s: int, local_root: str):
+        self.repo_url = repo_url.rstrip("/")
+        self.branch = branch
+        self.interval_s = int(interval_s)
+        self.local_root = local_root
+        self.state_path = os.path.join(self.local_root, ".state.json")
+        self.owner, self.repo = self._parse_repo(self.repo_url)
+        self.api_base = f"https://api.github.com/repos/{self.owner}/{self.repo}"
+        self.raw_base = f"https://raw.githubusercontent.com/{self.owner}/{self.repo}/{self.branch}"
+
+    def run(self):
+        while True:
+            try:
+                self.sync_once()
+            except Exception:
+                pass
+            time.sleep(self.interval_s)
+
+    def sync_once(self):
+        sha = self._branch_sha()
+        blobs = self._tree_blobs(sha)
+        old = self._load_state()
+        new = {}
+
+        for item in blobs:
+            path = item["path"]
+            blob_sha = item["sha"]
+            new[path] = blob_sha
+            dst = os.path.join(self.local_root, path)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            if old.get(path) != blob_sha or not os.path.exists(dst):
+                data = self._download_raw(path)
+                with open(dst, "wb") as f:
+                    f.write(data)
+
+        for path in list(old.keys()):
+            if path not in new:
+                p = os.path.join(self.local_root, path)
+                if os.path.isfile(p):
+                    os.remove(p)
+
+        self._prune_empty_dirs(self.local_root)
+        self._save_state(new)
+
+    def _parse_repo(self, url: str):
+        u = url.replace("https://github.com/", "").strip("/")
+        parts = u.split("/")
+        if len(parts) < 2:
+            raise ValueError("Invalid GitHub repo URL")
+        return parts[0], parts[1]
+
+    def _get(self, url: str) -> bytes:
+        req = urllib.request.Request(url, headers={"User-Agent": "GitSync"})
+        return urllib.request.urlopen(req, timeout=30).read()
+
+    def _branch_sha(self) -> str:
+        url = f"{self.api_base}/branches/{self.branch}"
+        data = json.loads(self._get(url))
+        return data["commit"]["sha"]
+
+    def _tree_blobs(self, sha: str):
+        url = f"{self.api_base}/git/trees/{sha}?recursive=1"
+        data = json.loads(self._get(url))
+        tree = data.get("tree", [])
+        return [x for x in tree if x.get("type") == "blob" and "path" in x and "sha" in x]
+
+    def _download_raw(self, path: str) -> bytes:
+        url = f"{self.raw_base}/{path}"
+        req = urllib.request.Request(url, headers={"User-Agent": "GitSync"})
+        return urllib.request.urlopen(req, timeout=60).read()
+
+    def _load_state(self):
+        if not os.path.exists(self.state_path):
+            return {}
+        try:
+            with open(self.state_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def _save_state(self, d):
+        with open(self.state_path, "w", encoding="utf-8") as f:
+            json.dump(d, f)
+
+    def _prune_empty_dirs(self, root: str):
+        for dirpath, dirnames, filenames in os.walk(root, topdown=False):
+            if dirpath == root:
+                continue
+            if not dirnames and not filenames:
+                try:
+                    os.rmdir(dirpath)
+                except Exception:
+                    pass
+
+class GitSyncWizard(TkinterDnD.Tk):
+    def __init__(self, others_dir: str):
+        super().__init__()
+        self.others_dir = others_dir
+        self.pinned = True
+
+        self.overrideredirect(True)
+        self.attributes("-topmost", True)
+        self.geometry("200x200+60+60")
+        self.configure(bg="#1e1e1e")
+
+        self._header()
+        self._body()
+        self._drag()
+
+    def _header(self):
+        bar = tk.Frame(self, bg="#2a2a2a", height=30)
+        bar.pack(fill="x")
+
+        tk.Label(bar, text="Git Sync", bg="#2a2a2a", fg="white").pack(side="left", padx=8)
+
+        self.pin_btn = tk.Button(bar, text="Unpin", bg="#2a2a2a", fg="white", bd=0, command=self._toggle_pin)
+        self.pin_btn.pack(side="right", padx=6)
+
+        tk.Button(bar, text="✕", bg="#2a2a2a", fg="white", bd=0, command=self._close_all).pack(side="right")
+
+        self.bar = bar
+
+    def _body(self):
+        box = tk.Label(self, text="Drop Files Here", bg="#1e1e1e", fg="white", justify="center")
+        box.pack(expand=True, fill="both")
+
+        box.drop_target_register(DND_FILES)
+        box.dnd_bind("<<Drop>>", self._drop)
+
+    def _drop(self, e):
+        files = self.tk.splitlist(e.data)
+        for f in files:
+            if os.path.isfile(f):
+                dst = os.path.join(self.others_dir, os.path.basename(f))
+                try:
+                    shutil.copy2(f, dst)
+                except Exception:
+                    pass
+
+    def _toggle_pin(self):
+        self.pinned = not self.pinned
+        self.attributes("-topmost", self.pinned)
+        self.pin_btn.config(text="Unpin" if self.pinned else "Pin")
+
+    def _close_all(self):
+        self.destroy()
+        os._exit(0)
+
+    def _drag(self):
+        def s(e):
+            self._dx, self._dy = e.x, e.y
+        def m(e):
+            self.geometry(f"+{e.x_root-self._dx}+{e.y_root-self._dy}")
+        self.bar.bind("<Button-1>", s)
+        self.bar.bind("<B1-Motion>", m)
+
+class App:
+    def __init__(self):
+        self.sync = GitHubRepoSync(
+            repo_url=REPO_URL,
+            branch=BRANCH,
+            interval_s=INTERVAL_SECONDS,
+            local_root=GITHUB_DIR
+        )
+
+    def run(self):
+        t = threading.Thread(target=self.sync.run, daemon=True)
+        t.start()
+        GitSyncWizard(OTHERS_DIR).mainloop()
+
+if __name__ == "__main__":
+    App().run()
