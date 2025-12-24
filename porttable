@@ -1,0 +1,134 @@
+import os
+import time
+import threading
+import subprocess
+import tkinter as tk
+from tkinter import filedialog, messagebox
+
+APP_NAME = "PortableTransferMMR"
+HOST = "cftp.mmr.local"
+PORT = 993
+REMOTE_PATH = "/"
+PROTOCOL = "explicit"
+WINSCP = os.path.join(os.getcwd(), "WinSCP", "winscp.com")
+
+class App(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title(APP_NAME)
+        self.geometry("420x300+200+200")
+        self.configure(bg="#151515")
+        self.resizable(False, False)
+
+        self.running = False
+        self.interval = 30
+        self.file_path = ""
+        self.user = ""
+        self.password = ""
+
+        tk.Label(self, text="Username", bg="#151515", fg="white").pack(pady=(12, 2))
+        self.e_user = tk.Entry(self, bg="#1e1e1e", fg="white", insertbackground="white")
+        self.e_user.pack(fill="x", padx=20)
+
+        tk.Label(self, text="Password", bg="#151515", fg="white").pack(pady=(8, 2))
+        self.e_pass = tk.Entry(self, show="*", bg="#1e1e1e", fg="white", insertbackground="white")
+        self.e_pass.pack(fill="x", padx=20)
+
+        tk.Label(self, text="Interval (seconds)", bg="#151515", fg="white").pack(pady=(8, 2))
+        self.e_interval = tk.Entry(self, bg="#1e1e1e", fg="white", insertbackground="white")
+        self.e_interval.pack(fill="x", padx=20)
+        self.e_interval.insert(0, "30")
+
+        self.file_label = tk.Label(self, text="No file selected", bg="#151515", fg="#aaaaaa")
+        self.file_label.pack(pady=10)
+
+        tk.Button(self, text="Select File", command=self.select_file).pack()
+
+        tk.Button(self, text="Start", command=self.start).pack(pady=14)
+
+    def select_file(self):
+        f = filedialog.askopenfilename()
+        if f:
+            self.file_path = f
+            self.file_label.config(text=os.path.basename(f))
+
+    def start(self):
+        self.user = self.e_user.get().strip()
+        self.password = self.e_pass.get().strip()
+
+        if not self.user or not self.password or not self.file_path:
+            messagebox.showerror(APP_NAME, "Username, password and file are required.")
+            return
+
+        try:
+            self.interval = int(self.e_interval.get().strip())
+        except:
+            self.interval = 30
+
+        self.withdraw()
+        MiniUI(self)
+        self.running = True
+        threading.Thread(target=self.loop, daemon=True).start()
+
+    def loop(self):
+        while self.running:
+            self.upload()
+            time.sleep(self.interval)
+
+    def upload(self):
+        cmd = [
+            WINSCP,
+            "/console",
+            "/command",
+            f'open ftpes://{self.user}:{self.password}@{HOST}:{PORT}',
+            f'cd {REMOTE_PATH}',
+            f'put "{self.file_path}"',
+            "exit"
+        ]
+        try:
+            subprocess.run(cmd, capture_output=True)
+        except:
+            pass
+
+class MiniUI(tk.Toplevel):
+    def __init__(self, app):
+        super().__init__()
+        self.app = app
+        self.overrideredirect(True)
+        self.attributes("-topmost", True)
+        self.configure(bg="#1e1e1e")
+
+        w, h = 200, 90
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        self.geometry(f"{w}x{h}+{sw-w-10}+{sh-h-40}")
+
+        tk.Label(self, text=APP_NAME, bg="#1e1e1e", fg="white").pack(pady=(6, 2))
+
+        row = tk.Frame(self, bg="#1e1e1e")
+        row.pack()
+
+        tk.Button(row, text="⟳", width=4, command=self.app.upload).pack(side="left", padx=6)
+        tk.Button(row, text="—", width=4, command=self.minimize).pack(side="left", padx=6)
+        tk.Button(row, text="✕", width=4, command=self.close).pack(side="left", padx=6)
+
+        self.bind("<Button-1>", self.start_drag)
+        self.bind("<B1-Motion>", self.drag)
+
+    def start_drag(self, e):
+        self._x = e.x
+        self._y = e.y
+
+    def drag(self, e):
+        self.geometry(f"+{e.x_root - self._x}+{e.y_root - self._y}")
+
+    def minimize(self):
+        self.iconify()
+
+    def close(self):
+        self.app.running = False
+        self.app.destroy()
+        self.destroy()
+
+if __name__ == "__main__":
+    App().mainloop()
