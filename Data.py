@@ -1,211 +1,211 @@
 import os
 import math
 import time
+import re
+import unicodedata
 from io import BytesIO
+import csv
+import sys
+
 import msoffcrypto
 import pandas as pd
 from tqdm import tqdm
 from sqlalchemy import create_engine, text
-from IPython.display import display, Markdown
 from Config import CONFIG
 
 
-def normalize_numeric(v):
-    if pd.isna(v):
-        return None
-    s = str(v).strip()
-    s = s.replace("۰", "0").replace("۱", "1").replace("۲", "2").replace("۳", "3").replace("۴", "4")
-    s = s.replace("۵", "5").replace("۶", "6").replace("۷", "7").replace("۸", "8").replace("۹", "9")
-    s = s.replace("٬", ",").replace("٫", ".")
-    s = s.replace("\u200c", "").replace("\u200f", "")
-    if s in ["", "-", "—", "_"]:
-        return None
-    return s
+# =========================================================
+# Normalization Engine (دقیق و مستقل)
+# =========================================================
+class DataNormalizer:
+
+    AR_FA_MAP = str.maketrans(
+        "يكىةۀؤإأآ٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹",
+        "یککههواآ01234567890123456789"
+    )
+
+    @staticmethod
+    def normalize_text(v):
+        if v is None or pd.isna(v):
+            return None
+
+        s = str(v)
+        s = unicodedata.normalize("NFKC", s)
+        s = s.translate(DataNormalizer.AR_FA_MAP)
+
+        # حذف کاراکترهای کنترلی
+        s = "".join(
+            ch for ch in s
+            if unicodedata.category(ch)[0] != "C" or ch in "\r\n\t"
+        )
+
+        s = s.strip()
+        if s == "" or s.lower() == "null":
+            return None
+        return s
+
+    @staticmethod
+    def normalize_numeric(v):
+        s = DataNormalizer.normalize_text(v)
+        if s is None:
+            return None
+
+        s = s.replace("٬", "").replace("٫", ".")
+        s = re.sub(r"[^\d\.-]", "", s)
+        return None if s == "" else s
+
+    @staticmethod
+    def cast_series(series, sql_type):
+        t = sql_type.upper()
+
+        if t in ("INT", "BIGINT"):
+            return series.apply(
+                lambda x: pd.to_numeric(
+                    DataNormalizer.normalize_numeric(x),
+                    errors="coerce"
+                )
+            )
+
+        if t.startswith("NVARCHAR"):
+            m = re.search(r"\((\d+|MAX)\)", t)
+            max_len = None if not m or m.group(1) == "MAX" else int(m.group(1))
+
+            def f(x):
+                v = DataNormalizer.normalize_text(x)
+                if v is None:
+                    return None
+                return v if max_len is None else v[:max_len]
+
+            return series.astype(object).apply(f)
+
+        return series.astype(object).apply(DataNormalizer.normalize_text)
 
 
+# =========================================================
+# Main Loader (مطابق دقیق Config.py)
+# =========================================================
 class ConfigDataLoader:
-    def __init__(self, batch_size=1_000_000, max_params=2000, separator=","):
+
+    def __init__(self, batch_size=200_000, max_params=2000, bad_records_path="bad.txt"):
         self.cfg = CONFIG
-        self.engine = None
         self.batch_size = batch_size
         self.max_params = max_params
-        self.separator = separator or ","
+        self.bad_records_path = bad_records_path
+        self.engine = None
 
-    def build_engine_with_retry(self, max_retries=5, delay_seconds=2):
-        driver = self.cfg["pyodbc_driver"]
-        server = self.cfg["server_ip"]
-        database = self.cfg["database_name"]
-        username = self.cfg["username"]
-        password = self.cfg["password"]
-        auth = self.cfg["auth_method"]
-        if auth == "WinAuth":
-            conn_str = f"Driver={driver};Server={server};Database={database};Trusted_Connection=yes;"
+    # ---------------- DB Engine ----------------
+    def build_engine(self):
+        c = self.cfg
+        driver = c["pyodbc_driver"]
+        server = c["server_ip"]
+        db = c["database_name"]
+
+        if c["auth_method"] == "WinAuth":
+            conn = f"Driver={driver};Server={server};Database={db};Trusted_Connection=yes;"
         else:
-            conn_str = f"Driver={driver};Server={server};Database={database};UID={username};PWD={password};"
-        from urllib.parse import quote_plus
-        url = "mssql+pyodbc:///?odbc_connect=" + quote_plus(conn_str)
-        for _ in range(max_retries):
-            try:
-                self.engine = create_engine(url, fast_executemany=True)
-                with self.engine.connect() as c:
-                    c.execute(text("SELECT 1"))
-                display(Markdown("### ✅ Connection successful"))
-                return True
-            except Exception:
-                time.sleep(delay_seconds)
-        display(Markdown("### ❌ Failed to connect"))
-        return False
+            conn = f"Driver={driver};Server={server};Database={db};UID={c['username']};PWD={c['password']};"
 
-    def decrypt_excel(self, file_path, sheet):
-        passwords = self.cfg.get("file_password") or []
-        with open(file_path, "rb") as f:
+        from urllib.parse import quote_plus
+        self.engine = create_engine(
+            "mssql+pyodbc:///?odbc_connect=" + quote_plus(conn),
+            fast_executemany=True
+        )
+
+        with self.engine.connect() as con:
+            con.execute(text("SELECT 1"))
+
+    # ---------------- Excel ----------------
+    def read_excel(self, path, sheet, passwords):
+        with open(path, "rb") as f:
             of = msoffcrypto.OfficeFile(f)
             if not of.is_encrypted():
-                return pd.read_excel(file_path, sheet_name=sheet if sheet else 0, engine="openpyxl")
-        for pwd in passwords:
+                return pd.read_excel(path, sheet_name=sheet, dtype=str)
+
+        for p in passwords:
             try:
-                with open(file_path, "rb") as f:
+                with open(path, "rb") as f:
                     of = msoffcrypto.OfficeFile(f)
-                    of.load_key(password=pwd)
+                    of.load_key(password=p)
                     bio = BytesIO()
                     of.decrypt(bio)
                     bio.seek(0)
-                    return pd.read_excel(bio, sheet_name=sheet if sheet else 0, engine="openpyxl")
+                    return pd.read_excel(bio, sheet_name=sheet, dtype=str)
             except Exception:
                 continue
-        return None
 
-    def read_csv(self, file_path):
-        encs = self.cfg.get("encoding") or ["utf-8"]
-        for e in encs:
-            try:
-                return pd.read_csv(
-                    file_path,
-                    encoding=e,
-                    sep=self.separator,
-                    engine="python",
-                    on_bad_lines="skip"
-                )
-            except Exception:
-                continue
-        return None
+        raise RuntimeError("Excel password invalid")
 
-    def read_txt(self, file_path):
-        encs = self.cfg.get("encoding") or ["utf-8"]
-        for e in encs:
-            try:
-                return pd.read_csv(
-                    file_path,
-                    encoding=e,
-                    sep=self.separator,
-                    engine="python",
-                    on_bad_lines="skip"
-                )
-            except Exception:
-                continue
-        return None
+    # ---------------- CSV / TXT ----------------
+    def read_text_batches(self, path, encoding, delimiter):
+        return pd.read_csv(
+            path,
+            sep=delimiter,
+            encoding=encoding,
+            dtype=str,
+            engine="python",
+            keep_default_na=False,
+            chunksize=self.batch_size
+        )
 
-    def read_file(self, fp, sheet):
-        ext = os.path.splitext(fp)[1].lower()
-        if ext in [".xlsx", ".xls", ".xlsm", ".xlsb"]:
-            return self.decrypt_excel(fp, sheet)
-        if ext == ".csv":
-            return self.read_csv(fp)
-        if ext == ".txt":
-            return self.read_txt(fp)
-        return None
-
-    def cast_series(self, s, t):
-        t = t.upper()
-        if t in ("SMALLINT", "INT", "BIGINT", "DECIMAL(38,0)"):
-            return s.apply(lambda x: pd.to_numeric(normalize_numeric(x), errors="coerce")).astype("Int64")
-        if t == "DECIMAL(18,4)":
-            return s.apply(lambda x: pd.to_numeric(normalize_numeric(x), errors="coerce"))
-        if t == "DATE":
-            return pd.to_datetime(s, errors="coerce").dt.date
-        if t.startswith("DATETIME"):
-            return pd.to_datetime(s, errors="coerce")
-        if t.startswith("NVARCHAR"):
-            return s.astype(object).apply(lambda x: "" if pd.isna(x) else str(x))
-        return s
-
-    def build_df(self, df, table):
+    # ---------------- Apply Schema ----------------
+    def build_df(self, df, table_def):
         out = {}
-        for f in table["fields"]:
-            src = f["file"]
-            dst = f["db"]
-            t = f["type"]
-            if src in df and dst:
-                out[dst] = self.cast_series(df[src], t)
+        for f in table_def["fields"]:
+            name = f["name"]
+            typ = f["type"]
+
+            if name in df.columns:
+                out[name] = DataNormalizer.cast_series(df[name], typ)
+            else:
+                out[name] = [None] * len(df)
+
         return pd.DataFrame(out)
 
-    def split_batches(self, df):
-        total = len(df)
-        if total <= self.batch_size:
-            return [df]
-        res = []
-        c = math.ceil(total / self.batch_size)
-        for i in range(c):
-            s = i * self.batch_size
-            e = min(s + self.batch_size, total)
-            res.append(df.iloc[s:e])
-        return res
-
-    def safe_insert(self, df, table_name, schema):
-        meta = self.cfg["tables"][table_name]["fields"]
-        limits = {}
-        for f in meta:
-            t = f["type"].upper()
-            if t.startswith("NVARCHAR(") and "MAX" not in t:
-                limits[f["db"]] = int(t[t.find("(") + 1:t.find(")")])
-
-        for col, lim in limits.items():
-            if col in df:
-                df = df[df[col].astype(str).str.len() <= lim]
-
+    # ---------------- Insert ----------------
+    def safe_insert(self, df, table_name):
         if df.empty:
             return
+        df.to_sql(
+            name=table_name,
+            con=self.engine,
+            if_exists="append",
+            index=False,
+            method=None
+        )
 
-        cols = len(df.columns)
-        safe_rows = max(1, self.max_params // cols)
-        total = len(df)
-        parts = math.ceil(total / safe_rows)
-
-        for i in range(parts):
-            s = i * safe_rows
-            e = min(s + safe_rows, total)
-            df.iloc[s:e].to_sql(
-                name=table_name,
-                con=self.engine,
-                schema=schema,
-                if_exists="append",
-                index=False,
-                method=None
-            )
-
+    # ---------------- MAIN ----------------
     def load_all(self):
-        if not self.build_engine_with_retry():
-            return
+        self.build_engine()
+
         for table_name, tdef in self.cfg["tables"].items():
             fp = tdef["input"]["file"]
             sheet = tdef["input"]["sheet"]
-            schema = tdef.get("schema")
-            if not os.path.exists(fp):
+            encoding = tdef["encoding"]
+            delimiter = tdef["delimiter"]
+
+            ext = os.path.splitext(fp)[1].lower()
+            print(f"▶ {table_name}")
+
+            if ext in (".xlsx", ".xls"):
+                df_raw = self.read_excel(fp, sheet, self.cfg.get("file_password", []))
+                df = self.build_df(df_raw, tdef)
+                self.safe_insert(df, table_name)
+                print(f"  ✔ {len(df)} rows")
                 continue
-            df_raw = self.read_file(fp, sheet)
-            if df_raw is None:
-                continue
-            df = self.build_df(df_raw, tdef)
-            if df.empty:
-                continue
-            batches = self.split_batches(df)
-            for b in batches:
-                self.safe_insert(b, table_name, schema)
-        display(Markdown("# 🎉 Completed"))
+
+            for chunk in self.read_text_batches(fp, encoding, delimiter):
+                df = self.build_df(chunk, tdef)
+                self.safe_insert(df, table_name)
+
+            print("  ✔ done")
 
 
-
-
-
-loader = ConfigDataLoader(separator="|")
+# =========================================================
+# CALL (دقیقاً مثل کد خودت)
+# =========================================================
+loader = ConfigDataLoader(
+    batch_size=200000,
+    max_params=2000,
+    bad_records_path=r"D:\Data\bad_records.txt"
+)
 loader.load_all()
