@@ -1,196 +1,100 @@
-import json
-from sqlalchemy import create_engine, MetaData, Table, Column, text
-from sqlalchemy.types import Integer, BigInteger, NVARCHAR
-from sqlalchemy.exc import SQLAlchemyError
-from IPython.display import display, Markdown
-from Config import CONFIG
+import os
+import importlib.util
+import pyodbc
 
 
-class DatabaseBuilder:
-    def __init__(self, add_primary_key=True):
-        self.cfg = CONFIG
-        self.engine = None
-        self.add_primary_key = add_primary_key
+class DatabaseTableBuilder:
 
-    def build_engine(self):
-        driver = self.cfg["pyodbc_driver"]
-        server = self.cfg["server_ip"]
-        database = self.cfg["database_name"]
-        username = self.cfg["username"]
-        password = self.cfg["password"]
-        auth = self.cfg["auth_method"]
+    TABLE_COLLATION = "SQL_Latin1_General_CP1256_CI_AS"
 
-        if auth == "WinAuth":
-            conn = (
-                f"Driver={driver};"
-                f"Server={server};"
-                f"Database={database};"
+    def __init__(self):
+        self.config = self.load_config()
+        self.conn = self.connect()
+
+    # ---------------- Load Config.py ----------------
+    def load_config(self):
+        config_path = os.path.join(os.getcwd(), "Config.py")
+
+        if not os.path.isfile(config_path):
+            raise RuntimeError("Config.py not found in current directory")
+
+        spec = importlib.util.spec_from_file_location("Config", config_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        if not hasattr(module, "CONFIG"):
+            raise RuntimeError("CONFIG not found inside Config.py")
+
+        return module.CONFIG
+
+    # ---------------- Connect ----------------
+    def connect(self):
+        cfg = self.config
+
+        if cfg["database_type"].lower() != "sqlserver":
+            raise NotImplementedError("Only SqlServer supported")
+
+        if cfg["auth_method"].lower() == "winauth":
+            conn_str = (
+                f"DRIVER={{{cfg['pyodbc_driver']}}};"
+                f"SERVER={cfg['server_ip']};"
+                f"DATABASE={cfg['database_name']};"
                 f"Trusted_Connection=yes;"
             )
         else:
-            conn = (
-                f"Driver={driver};"
-                f"Server={server};"
-                f"Database={database};"
-                f"UID={username};"
-                f"PWD={password};"
+            conn_str = (
+                f"DRIVER={{{cfg['pyodbc_driver']}}};"
+                f"SERVER={cfg['server_ip']};"
+                f"DATABASE={cfg['database_name']};"
+                f"UID={cfg['username']};"
+                f"PWD={cfg['password']};"
             )
 
-        from urllib.parse import quote_plus
-        conn_url = "mssql+pyodbc:///?odbc_connect=" + quote_plus(conn)
+        return pyodbc.connect(conn_str, autocommit=True)
 
-        try:
-            self.engine = create_engine(conn_url, fast_executemany=True)
-            with self.engine.connect() as conn_test:
-                conn_test.execute(text("SELECT 1"))
-            display(Markdown("### ✅ Connection test passed."))
-        except SQLAlchemyError as e:
-            display(Markdown(f"### ❌ Connection failed:\n```\n{str(e)}\n```"))
-            raise e
+    # ---------------- Table Exists ----------------
+    def table_exists(self, cursor, table_name):
+        cursor.execute("""
+            SELECT 1
+            FROM INFORMATION_SCHEMA.TABLES
+            WHERE TABLE_NAME = ?
+        """, table_name)
+        return cursor.fetchone() is not None
 
-    # =========================
-    # ONLY ALLOWED TYPES
-    # INT | BIGINT | NVARCHAR
-    # =========================
-    def map_type(self, t: str):
-        t = t.upper().strip()
+    # ---------------- Build CREATE TABLE ----------------
+    def build_create_sql(self, table_name, table_def):
+        cols = []
 
-        if t == "INT":
-            return Integer()
-
-        if t == "BIGINT":
-            return BigInteger()
-
-        if t.startswith("NVARCHAR"):
-            if "MAX" in t:
-                return NVARCHAR(None)
-            else:
-                size = int(t[t.find("(") + 1 : t.find(")")])
-                return NVARCHAR(size)
-
-        raise ValueError(f"Unsupported data type: {t}")
-
-    def apply_collation_full(self, schema, table_name, collation, fields):
-        fq_table = f"{schema}.{table_name}" if schema else table_name
-
-        with self.engine.begin() as conn:
-            # table collation
-            conn.execute(
-                text(f"ALTER TABLE {fq_table} COLLATE {collation}")
+        for f in table_def["fields"]:
+            col = (
+                f"[{f['name']}] {f['type']} "
+                f"COLLATE {self.TABLE_COLLATION} "
+                f"NULL"
             )
+            cols.append(col)
 
-            # column collation (only NVARCHAR)
-            for f in fields:
-                col_name = f["db"]
-                col_type = f["type"].upper()
+        columns_sql = ",\n  ".join(cols)
 
-                if col_type.startswith("NVARCHAR"):
-                    conn.execute(text(
-                        f"""
-                        ALTER TABLE {fq_table}
-                        ALTER COLUMN {col_name} {col_type}
-                        COLLATE {collation} NULL
-                        """
-                    ))
+        return f"""
+        CREATE TABLE [{table_name}]
+        (
+          {columns_sql}
+        )
+        COLLATE {self.TABLE_COLLATION}
+        """
 
-    def create_tables(self):
-        if self.engine is None:
-            display(Markdown("### ❌ Engine is not initialized. Call build_engine() first."))
-            return
+    # ---------------- Run ----------------
+    def run(self):
+        cursor = self.conn.cursor()
 
-        created_tables = {}
-
-        for table_name, table_def in self.cfg["tables"].items():
-            display(Markdown(f"---\n## ▶️ Creating table: **{table_name}**"))
-
-            schema = table_def.get("schema", "")
-            collation = table_def.get("collation", None)
-
-            metadata = MetaData(schema=schema if schema else None)
-            cols = []
-
-            if self.add_primary_key:
-                cols.append(
-                    Column(
-                        "ID",
-                        BigInteger(),
-                        primary_key=True,
-                        autoincrement=True
-                    )
-                )
-
-            for field in table_def["fields"]:
-                col_name = field["db"]
-                col_type = field["type"]
-
-                if not col_name:
-                    display(Markdown(f"⚠️ Skipped field with empty db name in `{table_name}`"))
-                    continue
-
-                sqlalchemy_type = self.map_type(col_type)
-
-                col_obj = Column(
-                    col_name,
-                    sqlalchemy_type,
-                    nullable=True  # ALL COLUMNS NULLABLE
-                )
-
-                cols.append(col_obj)
-
-            table_obj = Table(table_name, metadata, *cols)
-
-            try:
-                metadata.create_all(self.engine)
-
-                if self.add_primary_key:
-                    with self.engine.connect() as conn:
-                        fq_table = f"{schema}.{table_name}" if schema else table_name
-                        conn.execute(text(
-                            f"""
-                            IF NOT EXISTS (
-                                SELECT 1
-                                FROM sys.identity_columns
-                                WHERE object_id = OBJECT_ID('{fq_table}')
-                                AND seed_value = 1001
-                            )
-                            DBCC CHECKIDENT ('{fq_table}', RESEED, 1000)
-                            """
-                        ))
-
-                display(Markdown(f"### ✅ Table `{table_name}` created successfully."))
-
-            except SQLAlchemyError as e:
-                display(Markdown(
-                    f"### ❌ Error creating table `{table_name}`:\n```\n{str(e)}\n```"
-                ))
+        for table_name, table_def in self.config["tables"].items():
+            if self.table_exists(cursor, table_name):
+                print(f"TABLE EXISTS: {table_name}")
                 continue
 
-            if collation:
-                self.apply_collation_full(
-                    schema,
-                    table_name,
-                    collation,
-                    table_def["fields"]
-                )
-                display(Markdown(
-                    f"### 🔤 Collation `{collation}` applied to table and fields."
-                ))
+            sql = self.build_create_sql(table_name, table_def)
+            cursor.execute(sql)
+            print(f"TABLE CREATED: {table_name}")
 
-            result_info = []
-            for c in cols:
-                result_info.append({
-                    "column": c.name,
-                    "type": str(c.type)
-                })
-
-            created_tables[table_name] = result_info
-            display(Markdown("### ✔ Finished.\n"))
-
-        display(Markdown("# 🎉 All table creation tasks completed."))
-        return created_tables
-
-
-# Example usage:
-# builder = DatabaseBuilder(add_primary_key=True)
-# builder.build_engine()
-# builder.create_tables()
+        cursor.close()
+        self.conn.close()
