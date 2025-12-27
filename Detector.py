@@ -1,156 +1,169 @@
 import os
 import json
-import warnings
+import csv
 import pandas as pd
-from tqdm import tqdm
+import re
+from collections import defaultdict
 
 
-class FileStructureExtractor:
-    def __init__(self, paths, delimiter=",", copy_file_to_db_name=False):
-        self.paths = paths if isinstance(paths, list) else [paths]
-        self.delimiter = delimiter
-        self.copy_file_to_db_name = copy_file_to_db_name
+class FileSchemaExtractor:
+
+    ENCODINGS = [
+        "utf-8-sig", "utf-8",
+        "cp1256", "cp1252",
+        "iso-8859-6", "iso-8859-1",
+        "utf-16", "utf-16-le", "utf-16-be"
+    ]
+
+    DELIMITERS = [",", "|", ";", "\t", "~"]
+
+    def __init__(self, folder_path):
+        self.folder_path = folder_path
         self.tables = {}
-        warnings.filterwarnings("ignore", category=UserWarning)
 
-    def detect_type(self, series):
-        s = series.dropna().astype(str)
-        if s.empty:
-            return "NVARCHAR(25)"
+    # ---------------- Encoding ----------------
+    def detect_encoding(self, file_path):
+        raw = open(file_path, "rb").read()
+        best, best_score = None, -1
 
-        is_numeric = s.str.isdigit()
-        no_leading_zero = ~s.str.startswith("0") | (s == "0")
+        for enc in self.ENCODINGS:
+            try:
+                text = raw.decode(enc)
+            except Exception:
+                continue
 
-        if is_numeric.all() and no_leading_zero.all():
-            max_len = s.str.len().max()
-            if max_len <= 9:
-                return "INT"
-            return "BIGINT"
+            bad = text.count("\ufffd")
+            ctrl = sum(1 for c in text if ord(c) < 9)
+            score = len(text) - bad * 1000 - ctrl * 10
 
-        lengths = s.str.len()
-        max_len = int(lengths.max())
+            if score > best_score:
+                best, best_score = enc, score
 
-        if max_len <= 25:
-            return "NVARCHAR(25)"
-        if max_len <= 50:
-            return "NVARCHAR(50)"
-        if max_len <= 75:
-            return "NVARCHAR(75)"
-        if max_len <= 100:
-            return "NVARCHAR(100)"
-        if max_len <= 200:
-            return "NVARCHAR(200)"
+        return best or "utf-8"
+
+    # ---------------- Delimiter ----------------
+    def detect_delimiter(self, file_path, encoding):
+        scores = {}
+        lines = open(file_path, encoding=encoding, errors="ignore").read().splitlines()
+
+        for d in self.DELIMITERS:
+            counts = [len(row) for row in csv.reader(lines, delimiter=d)]
+            scores[d] = len(set(counts))
+
+        return min(scores, key=scores.get)
+
+    # ---------------- Normalize ----------------
+    def normalize_dataframe(self, df):
+        max_cols = max(len(row) for row in df.values.tolist())
+        for i in range(len(df.columns), max_cols):
+            df[f"column{i+1}"] = None
+        return df
+
+    def normalize_columns(self, df):
+        df.columns = [
+            c if isinstance(c, str) and c.strip() else f"column{i+1}"
+            for i, c in enumerate(df.columns)
+        ]
+        return df
+
+    # ---------------- Type Detection ----------------
+    def nvarchar_size(self, ln):
+        if ln < 25: return "NVARCHAR(25)"
+        if ln < 50: return "NVARCHAR(50)"
+        if ln < 75: return "NVARCHAR(75)"
+        if ln < 100: return "NVARCHAR(100)"
+        if ln < 200: return "NVARCHAR(200)"
         return "NVARCHAR(MAX)"
 
-    def process_csv(self, path):
-        return pd.read_csv(
-            path,
-            sep=self.delimiter,
-            engine="python",
-            on_bad_lines="skip"
-        )
+    def detect_type(self, values):
+        clean = [v for v in values if v not in (None, "", "null")]
 
-    def process_txt(self, path):
-        return pd.read_csv(
-            path,
-            sep=self.delimiter,
-            engine="python",
-            on_bad_lines="skip"
-        )
+        if not clean:
+            return "NVARCHAR(25)"
+
+        int_ok, float_ok = True, True
+        max_len, max_int = 0, 0
+
+        for v in clean:
+            s = str(v)
+            max_len = max(max_len, len(s))
+
+            if not re.fullmatch(r"-?\d+", s):
+                int_ok = False
+            else:
+                max_int = max(max_int, abs(int(s)))
+
+            if not re.fullmatch(r"-?\d+(\.\d+)?", s):
+                float_ok = False
+
+        if int_ok:
+            return "INT" if max_int <= 2147483647 else "BIGINT"
+        if float_ok:
+            return "FLOAT"
+
+        return self.nvarchar_size(max_len)
+
+    # ---------------- Process ----------------
+    def process_text(self, path):
+        encoding = self.detect_encoding(path)
+        delimiter = self.detect_delimiter(path, encoding)
+        df = pd.read_csv(path, sep=delimiter, dtype=str, encoding=encoding, engine="python")
+        return df, encoding, delimiter
 
     def process_excel(self, path):
         xls = pd.ExcelFile(path)
-        data = {}
-        for sheet in xls.sheet_names:
-            data[sheet] = pd.read_excel(path, sheet_name=sheet)
-        return data
+        return {s: pd.read_excel(path, sheet_name=s, dtype=str) for s in xls.sheet_names}
 
-    def generate_table_name(self, path, sheet=None):
-        base = os.path.splitext(os.path.basename(path))[0]
-        if sheet:
-            return f"{base}_{sheet}"
-        return base
+    # ---------------- Run ----------------
+    def run(self, output_path):
+        for root, _, files in os.walk(self.folder_path):
+            for f in files:
+                full = os.path.join(root, f)
+                ext = f.lower().split(".")[-1]
 
-    def normalize_columns(self, df):
-        cols = []
-        for i, c in enumerate(df.columns):
-            if isinstance(c, str) and c.strip():
-                cols.append(c)
-            else:
-                cols.append(f"Col_{i+1}")
-        df.columns = cols
-        return df
+                if ext in ("csv", "txt"):
+                    df, enc, delim = self.process_text(full)
+                    df = self.normalize_columns(self.normalize_dataframe(df))
 
-    def build_fields_with_progress(self, df, desc):
-        fields = []
-        with tqdm(total=len(df.columns), desc=desc, ncols=100) as pbar:
-            for col in df.columns:
-                t = self.detect_type(df[col])
-                fields.append({
-                    "file": col,
-                    "db": col if self.copy_file_to_db_name else "",
-                    "type": t
-                })
-                pbar.update(1)
-        return fields
+                    table = os.path.splitext(f)[0]
+                    self.tables[table] = self.build_table(
+                        df, full, "null", enc, delim
+                    )
 
-    def run(self, output_path="C.txt"):
-        for path in self.paths:
-            ext = os.path.splitext(path)[1].lower()
-
-            if ext == ".xlsx":
-                sheets = self.process_excel(path)
-                for sheet_name, df in sheets.items():
-                    df = self.normalize_columns(df)
-                    table_name = self.generate_table_name(path, sheet_name)
-                    fields = self.build_fields_with_progress(df, f"{os.path.basename(path)} | {sheet_name}")
-                    self.tables[table_name] = {
-                        "schema": "",
-                        "collation": "SQL_Latin1_General_CP1256_CI_AS",
-                        "input": {"file": path, "sheet": sheet_name},
-                        "fields": fields
-                    }
-
-            elif ext == ".csv":
-                df = self.process_csv(path)
-                df = self.normalize_columns(df)
-                table_name = self.generate_table_name(path)
-                fields = self.build_fields_with_progress(df, os.path.basename(path))
-                self.tables[table_name] = {
-                    "schema": "",
-                    "collation": "SQL_Latin1_General_CP1256_CI_AS",
-                    "input": {"file": path, "sheet": "null"},
-                    "fields": fields
-                }
-
-            elif ext == ".txt":
-                df = self.process_txt(path)
-                df = self.normalize_columns(df)
-                table_name = self.generate_table_name(path)
-                fields = self.build_fields_with_progress(df, os.path.basename(path))
-                self.tables[table_name] = {
-                    "schema": "",
-                    "collation": "SQL_Latin1_General_CP1256_CI_AS",
-                    "input": {"file": path, "sheet": "null"},
-                    "fields": fields
-                }
-
-        if os.path.exists(output_path):
-            os.remove(output_path)
+                elif ext == "xlsx":
+                    sheets = self.process_excel(full)
+                    for sheet, df in sheets.items():
+                        df = self.normalize_columns(self.normalize_dataframe(df))
+                        table = f"{os.path.splitext(f)[0]}_{sheet}"
+                        self.tables[table] = self.build_table(
+                            df, full, sheet, "null", "null"
+                        )
 
         with open(output_path, "w", encoding="utf-8") as f:
-            json.dump({"tables": self.tables}, f, ensure_ascii=False, indent=4)
+            json.dump({"tables": self.tables}, f, ensure_ascii=False, indent=2)
+
+    def build_table(self, df, file_path, sheet, encoding, delimiter):
+        fields = []
+        for col in df.columns:
+            fields.append({
+                "name": str(col),
+                "type": self.detect_type(df[col].tolist()),
+                "nullable": "true"
+            })
+
+        return {
+            "encoding": str(encoding),
+            "delimiter": str(delimiter),
+            "rows_checked": str(len(df)),
+            "input": {
+                "file": str(file_path),
+                "sheet": str(sheet)
+            },
+            "fields": fields
+        }
 
 
-extractor = FileStructureExtractor(
-    paths=[
-        r"D:\Data\Users.csv",
-        r"D:\Data\Orders.txt",
-        r"D:\Data\Products.xlsx"
-    ],
-    delimiter=",",
-    copy_file_to_db_name=True
-)
 
-extractor.run(r"D:\Data\schema_output.json")
 
+extractor = FileSchemaExtractor(r"D:\Data")
+extractor.run(r"D:\Data\output.json")
