@@ -1,28 +1,37 @@
 import os
-import math
-import time
 import re
+import math
 import unicodedata
 from io import BytesIO
-import csv
-import sys
 
-import msoffcrypto
 import pandas as pd
-from tqdm import tqdm
+import msoffcrypto
 from sqlalchemy import create_engine, text
+from tqdm import tqdm
+
 from Config import CONFIG
 
 
-# =========================================================
-# Normalization Engine (دقیق و مستقل)
-# =========================================================
+
 class DataNormalizer:
 
-    AR_FA_MAP = str.maketrans(
-        "يكىةۀؤإأآ٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹",
-        "یککههواآ01234567890123456789"
-    )
+    CHAR_MAP = {
+        ord("ي"): "ی",
+        ord("ك"): "ک",
+        ord("ى"): "ی",
+        ord("ة"): "ه",
+        ord("ۀ"): "ه",
+        ord("ؤ"): "و",
+        ord("إ"): "ا",
+        ord("أ"): "ا",
+        ord("آ"): "ا",
+
+        ord("۰"): "0", ord("۱"): "1", ord("۲"): "2", ord("۳"): "3", ord("۴"): "4",
+        ord("۵"): "5", ord("۶"): "6", ord("۷"): "7", ord("۸"): "8", ord("۹"): "9",
+
+        ord("٠"): "0", ord("١"): "1", ord("٢"): "2", ord("٣"): "3", ord("٤"): "4",
+        ord("٥"): "5", ord("٦"): "6", ord("٧"): "7", ord("٨"): "8", ord("٩"): "9",
+    }
 
     @staticmethod
     def normalize_text(v):
@@ -31,9 +40,8 @@ class DataNormalizer:
 
         s = str(v)
         s = unicodedata.normalize("NFKC", s)
-        s = s.translate(DataNormalizer.AR_FA_MAP)
+        s = s.translate(DataNormalizer.CHAR_MAP)
 
-        # حذف کاراکترهای کنترلی
         s = "".join(
             ch for ch in s
             if unicodedata.category(ch)[0] != "C" or ch in "\r\n\t"
@@ -81,9 +89,9 @@ class DataNormalizer:
         return series.astype(object).apply(DataNormalizer.normalize_text)
 
 
-# =========================================================
-# Main Loader (مطابق دقیق Config.py)
-# =========================================================
+
+
+
 class ConfigDataLoader:
 
     def __init__(self, batch_size=200_000, max_params=2000, bad_records_path="bad.txt"):
@@ -93,7 +101,7 @@ class ConfigDataLoader:
         self.bad_records_path = bad_records_path
         self.engine = None
 
-    # ---------------- DB Engine ----------------
+    # ---------------- DB Connection ----------------
     def build_engine(self):
         c = self.cfg
         driver = c["pyodbc_driver"]
@@ -114,7 +122,7 @@ class ConfigDataLoader:
         with self.engine.connect() as con:
             con.execute(text("SELECT 1"))
 
-    # ---------------- Excel ----------------
+    # ---------------- Excel Reader ----------------
     def read_excel(self, path, sheet, passwords):
         with open(path, "rb") as f:
             of = msoffcrypto.OfficeFile(f)
@@ -133,7 +141,7 @@ class ConfigDataLoader:
             except Exception:
                 continue
 
-        raise RuntimeError("Excel password invalid")
+        raise RuntimeError("Invalid Excel password")
 
     # ---------------- CSV / TXT ----------------
     def read_text_batches(self, path, encoding, delimiter):
@@ -147,7 +155,7 @@ class ConfigDataLoader:
             chunksize=self.batch_size
         )
 
-    # ---------------- Apply Schema ----------------
+    # ---------------- Schema Apply ----------------
     def build_df(self, df, table_def):
         out = {}
         for f in table_def["fields"]:
@@ -163,7 +171,7 @@ class ConfigDataLoader:
 
     # ---------------- Insert ----------------
     def safe_insert(self, df, table_name):
-        if df.empty:
+        if df is None or df.empty:
             return
         df.to_sql(
             name=table_name,
@@ -184,25 +192,26 @@ class ConfigDataLoader:
             delimiter = tdef["delimiter"]
 
             ext = os.path.splitext(fp)[1].lower()
-            print(f"▶ {table_name}")
+            print(f"▶ Loading {table_name}")
 
             if ext in (".xlsx", ".xls"):
                 df_raw = self.read_excel(fp, sheet, self.cfg.get("file_password", []))
                 df = self.build_df(df_raw, tdef)
                 self.safe_insert(df, table_name)
-                print(f"  ✔ {len(df)} rows")
+                print(f"  ✔ {len(df)} rows inserted")
                 continue
 
             for chunk in self.read_text_batches(fp, encoding, delimiter):
                 df = self.build_df(chunk, tdef)
                 self.safe_insert(df, table_name)
 
-            print("  ✔ done")
+            print("  ✔ Done")
 
 
-# =========================================================
-# CALL (دقیقاً مثل کد خودت)
-# =========================================================
+
+
+
+
 loader = ConfigDataLoader(
     batch_size=200000,
     max_params=2000,
