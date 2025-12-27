@@ -64,24 +64,31 @@ class DatabaseTableBuilder:
     # ---------------- Build CREATE TABLE ----------------
     def build_create_sql(self, table_name, table_def):
         cols = []
-
+    
         for f in table_def["fields"]:
-            col = (
-                f"[{f['name']}] {f['type']} "
-                f"COLLATE {self.TABLE_COLLATION} "
-                f"NULL"
-            )
+            col_type = f["type"].upper()
+    
+            if col_type.startswith("NVARCHAR"):
+                col = (
+                    f"[{f['name']}] {f['type']} "
+                    f"COLLATE {self.TABLE_COLLATION} "
+                    f"NULL"
+                )
+            else:
+                col = (
+                    f"[{f['name']}] {f['type']} NULL"
+                )
+    
             cols.append(col)
-
+    
         columns_sql = ",\n  ".join(cols)
-
+    
         return f"""
-        CREATE TABLE [{table_name}]
-        (
-          {columns_sql}
-        )
-        COLLATE {self.TABLE_COLLATION}
-        """
+    CREATE TABLE [{table_name}]
+    (
+      {columns_sql}
+    )
+    """
 
     # ---------------- Run ----------------
     def run(self):
