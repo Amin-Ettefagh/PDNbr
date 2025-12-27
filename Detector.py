@@ -1,9 +1,18 @@
 import os
 import json
 import csv
+import sys
 import pandas as pd
 import re
-from collections import defaultdict
+
+# ---------------- CSV FIELD SIZE LIMIT ----------------
+max_int = sys.maxsize
+while True:
+    try:
+        csv.field_size_limit(max_int)
+        break
+    except OverflowError:
+        max_int //= 10
 
 
 class FileSchemaExtractor:
@@ -17,7 +26,7 @@ class FileSchemaExtractor:
 
     DELIMITERS = [",", "|", ";", "\t", "~"]
 
-    def __init__(self, folder_path):
+    def __init__(self, folder_path: str):
         self.folder_path = folder_path
         self.tables = {}
 
@@ -43,8 +52,8 @@ class FileSchemaExtractor:
 
     # ---------------- Delimiter ----------------
     def detect_delimiter(self, file_path, encoding):
-        scores = {}
         lines = open(file_path, encoding=encoding, errors="ignore").read().splitlines()
+        scores = {}
 
         for d in self.DELIMITERS:
             counts = [len(row) for row in csv.reader(lines, delimiter=d)]
@@ -53,18 +62,27 @@ class FileSchemaExtractor:
         return min(scores, key=scores.get)
 
     # ---------------- Normalize ----------------
-    def normalize_dataframe(self, df):
-        max_cols = max(len(row) for row in df.values.tolist())
-        for i in range(len(df.columns), max_cols):
-            df[f"column{i+1}"] = None
-        return df
-
     def normalize_columns(self, df):
         df.columns = [
-            c if isinstance(c, str) and c.strip() else f"column{i+1}"
+            c if isinstance(c, str) and str(c).strip() else f"column{i+1}"
             for i, c in enumerate(df.columns)
         ]
         return df
+
+    def normalize_dataframe(self, df):
+        rows = df.values.tolist()
+        max_cols = max(len(r) for r in rows)
+
+        for i in range(len(df.columns), max_cols):
+            df[f"column{i+1}"] = None
+
+        normalized = []
+        for r in rows:
+            if len(r) < max_cols:
+                r = r + [None] * (max_cols - len(r))
+            normalized.append(r)
+
+        return pd.DataFrame(normalized, columns=df.columns)
 
     # ---------------- Type Detection ----------------
     def nvarchar_size(self, ln):
@@ -103,45 +121,7 @@ class FileSchemaExtractor:
 
         return self.nvarchar_size(max_len)
 
-    # ---------------- Process ----------------
-    def process_text(self, path):
-        encoding = self.detect_encoding(path)
-        delimiter = self.detect_delimiter(path, encoding)
-        df = pd.read_csv(path, sep=delimiter, dtype=str, encoding=encoding, engine="python")
-        return df, encoding, delimiter
-
-    def process_excel(self, path):
-        xls = pd.ExcelFile(path)
-        return {s: pd.read_excel(path, sheet_name=s, dtype=str) for s in xls.sheet_names}
-
-    # ---------------- Run ----------------
-    def run(self, output_path):
-        for root, _, files in os.walk(self.folder_path):
-            for f in files:
-                full = os.path.join(root, f)
-                ext = f.lower().split(".")[-1]
-
-                if ext in ("csv", "txt"):
-                    df, enc, delim = self.process_text(full)
-                    df = self.normalize_columns(self.normalize_dataframe(df))
-
-                    table = os.path.splitext(f)[0]
-                    self.tables[table] = self.build_table(
-                        df, full, "null", enc, delim
-                    )
-
-                elif ext == "xlsx":
-                    sheets = self.process_excel(full)
-                    for sheet, df in sheets.items():
-                        df = self.normalize_columns(self.normalize_dataframe(df))
-                        table = f"{os.path.splitext(f)[0]}_{sheet}"
-                        self.tables[table] = self.build_table(
-                            df, full, sheet, "null", "null"
-                        )
-
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump({"tables": self.tables}, f, ensure_ascii=False, indent=2)
-
+    # ---------------- Build Table ----------------
     def build_table(self, df, file_path, sheet, encoding, delimiter):
         fields = []
         for col in df.columns:
@@ -162,8 +142,64 @@ class FileSchemaExtractor:
             "fields": fields
         }
 
+    # ---------------- Process ----------------
+    def process_text(self, path):
+        encoding = self.detect_encoding(path)
+        delimiter = self.detect_delimiter(path, encoding)
+
+        df = pd.read_csv(
+            path,
+            sep=delimiter,
+            dtype=str,
+            encoding=encoding,
+            engine="python"
+        )
+
+        df = self.normalize_columns(df)
+        df = self.normalize_dataframe(df)
+
+        return df, encoding, delimiter
+
+    def process_excel(self, path):
+        xls = pd.ExcelFile(path)
+        data = {}
+        for sheet in xls.sheet_names:
+            df = pd.read_excel(path, sheet_name=sheet, dtype=str)
+            df = self.normalize_columns(df)
+            df = self.normalize_dataframe(df)
+            data[sheet] = df
+        return data
+
+    # ---------------- Run ----------------
+    def run(self, output_path):
+        if not os.path.isdir(self.folder_path):
+            raise RuntimeError(f"Folder not accessible: {self.folder_path}")
+
+        for root, _, files in os.walk(self.folder_path):
+            for f in files:
+                full = os.path.join(root, f)
+                ext = f.lower().split(".")[-1]
+
+                if ext in ("csv", "txt"):
+                    df, enc, delim = self.process_text(full)
+                    table_name = os.path.splitext(f)[0]
+
+                    self.tables[table_name] = self.build_table(
+                        df, full, "null", enc, delim
+                    )
+
+                elif ext == "xlsx":
+                    sheets = self.process_excel(full)
+                    for sheet, df in sheets.items():
+                        table_name = f"{os.path.splitext(f)[0]}_{sheet}"
+                        self.tables[table_name] = self.build_table(
+                            df, full, sheet, "null", "null"
+                        )
+
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump({"tables": self.tables}, f, ensure_ascii=False, indent=2)
 
 
-
-extractor = FileSchemaExtractor(r"D:\Data")
-extractor.run(r"D:\Data\output.json")
+# ---------------- USAGE ----------------
+# extractor = FileSchemaExtractor(r"\\192.168.1.10\SharedData")
+# extractor.run(r"\\192.168.1.10\SharedData\output.json")
