@@ -5,7 +5,9 @@ import sys
 import pandas as pd
 import re
 
-# ---------------- CSV FIELD SIZE LIMIT ----------------
+# --------------------------------------------------
+# CSV FIELD SIZE LIMIT (برای سلول‌های خیلی بزرگ)
+# --------------------------------------------------
 max_int = sys.maxsize
 while True:
     try:
@@ -30,27 +32,49 @@ class FileSchemaExtractor:
         self.folder_path = folder_path
         self.tables = {}
 
-    # ---------------- Encoding ----------------
+    # --------------------------------------------------
+    # Encoding Detection (FIXED – ضد موجی‌باکه)
+    # --------------------------------------------------
     def detect_encoding(self, file_path):
         raw = open(file_path, "rb").read()
-        best, best_score = None, -1
+
+        # اولویت قطعی UTF-8
+        for enc in ("utf-8-sig", "utf-8"):
+            try:
+                raw.decode(enc, errors="strict")
+                return enc
+            except Exception:
+                pass
+
+        def arabic_bonus(text):
+            bonus = 0
+            for ch in text:
+                o = ord(ch)
+                if 0x0600 <= o <= 0x06FF or 0x0750 <= o <= 0x077F or 0x08A0 <= o <= 0x08FF:
+                    bonus += 3
+            return bonus
+
+        best, best_score = "utf-8", -10**18
 
         for enc in self.ENCODINGS:
             try:
-                text = raw.decode(enc)
+                text = raw.decode(enc, errors="strict")
             except Exception:
                 continue
 
-            bad = text.count("\ufffd")
-            ctrl = sum(1 for c in text if ord(c) < 9)
-            score = len(text) - bad * 1000 - ctrl * 10
+            ctrl = sum(1 for c in text if ord(c) < 9 or (13 < ord(c) < 32))
+            printable = sum(1 for c in text if c.isprintable() or c in "\r\n\t")
+
+            score = (printable * 2) - (ctrl * 200) + arabic_bonus(text)
 
             if score > best_score:
                 best, best_score = enc, score
 
-        return best or "utf-8"
+        return best
 
-    # ---------------- Delimiter ----------------
+    # --------------------------------------------------
+    # Delimiter Detection
+    # --------------------------------------------------
     def detect_delimiter(self, file_path, encoding):
         lines = open(file_path, encoding=encoding, errors="ignore").read().splitlines()
         scores = {}
@@ -61,7 +85,9 @@ class FileSchemaExtractor:
 
         return min(scores, key=scores.get)
 
-    # ---------------- Normalize ----------------
+    # --------------------------------------------------
+    # Normalize Columns
+    # --------------------------------------------------
     def normalize_columns(self, df):
         df.columns = [
             c if isinstance(c, str) and str(c).strip() else f"column{i+1}"
@@ -84,7 +110,9 @@ class FileSchemaExtractor:
 
         return pd.DataFrame(normalized, columns=df.columns)
 
-    # ---------------- Type Detection ----------------
+    # --------------------------------------------------
+    # Type Detection
+    # --------------------------------------------------
     def nvarchar_size(self, ln):
         if ln < 25: return "NVARCHAR(25)"
         if ln < 50: return "NVARCHAR(50)"
@@ -121,7 +149,9 @@ class FileSchemaExtractor:
 
         return self.nvarchar_size(max_len)
 
-    # ---------------- Build Table ----------------
+    # --------------------------------------------------
+    # Build Table
+    # --------------------------------------------------
     def build_table(self, df, file_path, sheet, encoding, delimiter):
         fields = []
         for col in df.columns:
@@ -142,7 +172,9 @@ class FileSchemaExtractor:
             "fields": fields
         }
 
-    # ---------------- Process ----------------
+    # --------------------------------------------------
+    # Process Files
+    # --------------------------------------------------
     def process_text(self, path):
         encoding = self.detect_encoding(path)
         delimiter = self.detect_delimiter(path, encoding)
@@ -152,7 +184,8 @@ class FileSchemaExtractor:
             sep=delimiter,
             dtype=str,
             encoding=encoding,
-            engine="python"
+            engine="python",
+            encoding_errors="strict"
         )
 
         df = self.normalize_columns(df)
@@ -162,15 +195,19 @@ class FileSchemaExtractor:
 
     def process_excel(self, path):
         xls = pd.ExcelFile(path)
-        data = {}
+        result = {}
+
         for sheet in xls.sheet_names:
             df = pd.read_excel(path, sheet_name=sheet, dtype=str)
             df = self.normalize_columns(df)
             df = self.normalize_dataframe(df)
-            data[sheet] = df
-        return data
+            result[sheet] = df
 
-    # ---------------- Run ----------------
+        return result
+
+    # --------------------------------------------------
+    # Run
+    # --------------------------------------------------
     def run(self, output_path):
         if not os.path.isdir(self.folder_path):
             raise RuntimeError(f"Folder not accessible: {self.folder_path}")
